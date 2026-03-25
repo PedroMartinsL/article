@@ -1,6 +1,5 @@
 from pmdarima.arima import auto_arima
 import numpy as np
-from sklearn import preprocessing
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.svm import SVR
 from sklearn.neural_network import MLPRegressor
@@ -8,6 +7,7 @@ import pandas as pd
 from extractor import get_dataframe_by_station_and_pollutant
 import time_series_functions as tsf
 import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 #Code retrieved from https://github.com/domingos108/time_series_functions
 
@@ -74,7 +74,7 @@ def extract_arima_preview(ts, test_size):
     arima_model = auto_arima(
         ts_train,
         seasonal=True,
-        m=12,          # sazonalidade mensal
+        m=7,          # sazonalidade mensal
         trace=False,
         suppress_warnings=True
     )
@@ -87,29 +87,50 @@ def extract_arima_preview(ts, test_size):
 
     return np.array(arima_prevs)
 
-def extract_svr(x_train, y_train):
-    model = SVR(C=1000, max_iter=100000, epsilon = 0.001) # falta encontrar params
-    model.fit(x_train, y_train)
+def extract_svr(x_train, y_train, x_test):
+    """
+        Model SVR
+    """
+    scaler_x = StandardScaler()
+    scaler_y = StandardScaler()
 
-    prevs = model.predict(x_test)
-    return min_max_scaler.inverse_transform(prevs.reshape(-1, 1)).flatten()
+    x_train_scaled = scaler_x.fit_transform(x_train)
+    x_test_scaled = scaler_x.transform(x_test)
+
+    y_train_scaled = scaler_y.fit_transform(y_train.values.reshape(-1, 1)).ravel()
+
+    model = SVR(C=50, epsilon=0.1, gamma="scale")
+    model.fit(x_train_scaled, y_train_scaled)
+
+    prevs_scaled = model.predict(x_test_scaled)
+
+    prevs = scaler_y.inverse_transform(prevs_scaled.reshape(-1, 1)).flatten()
+    return prevs
 
 def extract_mlp(x_train, x_test, y_train):
+    scaler_x = MinMaxScaler()
+    scaler_y = MinMaxScaler()
+
+    # normaliza
+    x_train_scaled = scaler_x.fit_transform(x_train)
+    x_test_scaled = scaler_x.transform(x_test)
+
+    y_train_scaled = scaler_y.fit_transform(y_train.values.reshape(-1, 1)).ravel()
+
     mlp = MLPRegressor(
         hidden_layer_sizes=(100,),
         max_iter=500,
         random_state=42
     )
 
-    mlp.fit(x_train, y_train)
+    # treino correto
+    mlp.fit(x_train_scaled, y_train_scaled)
 
-    # Previsões normalizadas
-    preds_norm = mlp.predict(x_test)
+    # previsão no x_test
+    preds_scaled = mlp.predict(x_test_scaled)
 
-    # Converter para escala real
-    preds_real = min_max_scaler.inverse_transform(
-        preds_norm.reshape(-1, 1)
-    ).flatten()
+    # volta para escala original
+    preds_real = scaler_y.inverse_transform(preds_scaled.reshape(-1, 1)).flatten()
 
     return preds_real
 
@@ -123,11 +144,7 @@ def extract_random_forest_regressor(x_train, x_test, y_train):
     
     rf = rf.predict(x_test)
 
-    preds_real = min_max_scaler.inverse_transform(
-            rf.reshape(-1, 1)
-        ).flatten()
-
-    return preds_real
+    return rf
 
 def extract_gradient_boosting(x_train, x_test, y_train):
     gb = GradientBoostingRegressor(
@@ -139,44 +156,46 @@ def extract_gradient_boosting(x_train, x_test, y_train):
     gb.fit(x_train, y_train)
     gb = gb.predict(x_test)
 
-    preds_real = min_max_scaler.inverse_transform(
-            gb.reshape(-1, 1)
-        ).flatten()
-
-    return preds_real
+    return gb
 
 #-------------------------------
 pollutant = "MP10"
 ts = get_dataframe_by_station_and_pollutant(station_code="SP71", pollutant=pollutant)
 
 #Interpolate values
-ts = ts.interpolate()
+ts = ts.interpolate(method="akima")
 
 time_window = 12
 horizon = 1
-test_size = 180 #3 Months
+test_size = int(len(ts) * 0.2)
 
-min_max_scaler = preprocessing.MinMaxScaler()
-min_max_scaler.fit(ts.values[0:-test_size].reshape(-1, 1))
-
-ts_normalized = min_max_scaler.transform(ts.values.reshape(-1, 1))
-ts_normalized = pd.DataFrame({'actual': ts_normalized.flatten()})
-
-df_wind = get_windowing(ts_normalized , time_window, horizon , prefix='')
+df_wind = get_windowing(ts, time_window, horizon, prefix='')
 
 x_train = df_wind.iloc[0:-test_size].drop(columns=['actual'])
 y_train = df_wind.iloc[0:-test_size]['actual']
 x_test = df_wind.iloc[-test_size:].drop(columns=['actual'])
 y_test = df_wind.iloc[-test_size:]['actual']
 
-svr_pred = extract_svr(x_train=x_train, y_train=y_train)
-arima_pred = extract_arima_preview(ts, test_size)
+# x_train_values_reshaped = ts.values[0:-test_size].reshape(-1, 1)
+
+# min_max_scaler = preprocessing.MinMaxScaler()
+# min_max_scaler.fit(x_train_values_reshaped)
+
+# ts_normalized = min_max_scaler.transform(ts.values.reshape(-1, 1))
+# ts_normalized = pd.DataFrame({'actual': ts_normalized.flatten()})
+
 mlp_pred = extract_mlp(x_test=x_test,x_train=x_train,y_train=y_train)
+svr_pred = extract_svr(x_train=x_train, y_train=y_train, x_test=x_test)
+arima_pred = extract_arima_preview(ts, test_size)
 rf_pred = extract_random_forest_regressor(x_test=x_test,x_train=x_train,y_train=y_train)
 gb_pred = extract_gradient_boosting(x_test=x_test,x_train=x_train,y_train=y_train)
 
+#MinMaxScaler
+print(f"mlp pred: {mlp_pred}")
 print("MLP:", gerenerate_metric_results(y_test, mlp_pred))
+#StandardScaler
 print("SVR:", gerenerate_metric_results(y_test, svr_pred))
+# #Nothing
 print("ARIMA:", gerenerate_metric_results(y_test, arima_pred))
 print("RF:", gerenerate_metric_results(y_test, rf_pred))
 print("GB:", gerenerate_metric_results(y_test, gb_pred))
@@ -186,21 +205,18 @@ ensemble_pred = np.mean(
     axis=0
 )
 
-print("Ensemble Predictions: ", ensemble_pred)
-
-y_test_real = min_max_scaler.inverse_transform(
-    y_test.values.reshape(-1, 1)
-).flatten()
+# print("Ensemble Predictions: ", ensemble_pred)
+test_index = ts.index[-test_size:]
 
 plt.figure(figsize=(12,6))
 
-plt.plot(y_test_real, label="Real", linewidth=2)
-plt.plot(mlp_pred, label="MLP")
-plt.plot(svr_pred, label="SVR")
-plt.plot(arima_pred, label="ARIMA")
-plt.plot(rf_pred, label="Random Forest")
-plt.plot(gb_pred, label="Gradient Boosting")
-plt.plot(ensemble_pred, label="Ensemble", linestyle="--", linewidth=2)
+plt.plot(test_index, y_test, label="Real", linewidth=2)
+plt.plot(test_index, mlp_pred, label="MLP")
+plt.plot(test_index, svr_pred, label="SVR")
+plt.plot(test_index, arima_pred, label="ARIMA")
+plt.plot(test_index, rf_pred, label="Random Forest")
+plt.plot(test_index, gb_pred, label="Gradient Boosting")
+plt.plot(test_index, ensemble_pred, label="Ensemble", linestyle="--", linewidth=2)
 
 plt.title("Models Comparison")
 plt.xlabel("Time Step - D")

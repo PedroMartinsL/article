@@ -64,11 +64,11 @@ def print_example():
 
     plt.figure(figsize=(12,6))
 
-    plt.plot(dataframe["datetime"], dataframe["Valor"])
+    plt.plot(dataframe.index, dataframe)
+    print("Null values:", dataframe.isna().sum())
 
     plt.title("MP10 - São José dos Campos - Vila Santa Maria")
     plt.xlabel("Data")
     plt.ylabel("MP10 (µg/m³)")
 
     plt.show()
-
