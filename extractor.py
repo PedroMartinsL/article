@@ -15,14 +15,9 @@ def count_stations():
     # print(estacoes)
     pass
 
-def get_dataframe_by_station_and_pollutant(station_code: str, pollutant: str):
+def get_dataframe_by_station_and_pollutant(station_code: str, pollutant: str, save_cv: bool = False):
 
     files = glob.glob("dataset/IEMA/SP*.csv")
-
-    files = [
-        f for f in files
-        if any(year in f for year in ["2018", "2019", "2020"])
-    ]
 
     dfs = []
 
@@ -49,12 +44,18 @@ def get_dataframe_by_station_and_pollutant(station_code: str, pollutant: str):
 
     #Taking the time as index
     dataframe = dataframe.sort_values("datetime").reset_index(drop=True)
-    dataframe = dataframe.set_index("datetime")["Valor"]
+    dataframe = dataframe.set_index("datetime")[["Valor"]]
+    dataframe = dataframe.rename(columns={"Valor": "actual"})
     
     #Retrieving the day average
     dataframe = dataframe.resample("D").mean()
 
     print(dataframe)
+    #Interpolation null values with akima
+    dataframe = dataframe.interpolate(method="akima")
+
+    if save_cv:
+        dataframe.to_csv(f"pollution_{station_code}_{pollutant}.csv")
 
     return dataframe
 

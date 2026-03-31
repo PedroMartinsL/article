@@ -5,7 +5,7 @@ from sklearn.svm import SVR
 from sklearn.neural_network import MLPRegressor
 import pandas as pd
 from extractor import get_dataframe_by_station_and_pollutant
-import time_series_functions as tsf
+import services.time_series_functions as tsf
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
@@ -124,7 +124,7 @@ def extract_mlp(x_train, x_test, y_train):
     x_test_scaled = scaler_x.transform(x_test)
 
     y_train_scaled = scaler_y.fit_transform(y_train.values.reshape(-1, 1)).ravel()
-
+    
     mlp = MLPRegressor(
         hidden_layer_sizes=(100,),
         max_iter=500,
@@ -192,39 +192,39 @@ y_test = df_wind.iloc[-test_size:]['actual']
 # ts_normalized = min_max_scaler.transform(ts.values.reshape(-1, 1))
 # ts_normalized = pd.DataFrame({'actual': ts_normalized.flatten()})
 
-# mlp_pred = extract_mlp(x_test=x_test,x_train=x_train,y_train=y_train)
+mlp_pred = extract_mlp(x_test=x_test,x_train=x_train,y_train=y_train)
 svr_pred = extract_svr(x_train=x_train, y_train=y_train, x_test=x_test)
-# arima_pred = extract_arima_preview(ts, test_size)
-# rf_pred = extract_random_forest_regressor(x_test=x_test,x_train=x_train,y_train=y_train)
-# gb_pred = extract_gradient_boosting(x_test=x_test,x_train=x_train,y_train=y_train)
+arima_pred = extract_arima_preview(ts, test_size)
+rf_pred = extract_random_forest_regressor(x_test=x_test,x_train=x_train,y_train=y_train)
+gb_pred = extract_gradient_boosting(x_test=x_test,x_train=x_train,y_train=y_train)
 
 # #MinMaxScaler
-# print(f"mlp pred: {mlp_pred}")
-# print("MLP:", gerenerate_metric_results(y_test, mlp_pred))
+print(f"mlp pred: {mlp_pred}")
+print("MLP:", gerenerate_metric_results(y_test, mlp_pred))
 # #StandardScaler
 print("SVR:", gerenerate_metric_results(y_test, svr_pred))
 # # #Nothing
-# print("ARIMA:", gerenerate_metric_results(y_test, arima_pred))
-# print("RF:", gerenerate_metric_results(y_test, rf_pred))
-# print("GB:", gerenerate_metric_results(y_test, gb_pred))
+print("ARIMA:", gerenerate_metric_results(y_test, arima_pred))
+print("RF:", gerenerate_metric_results(y_test, rf_pred))
+print("GB:", gerenerate_metric_results(y_test, gb_pred))
 
-# ensemble_pred = np.mean(
-#     [mlp_pred, svr_pred, arima_pred, rf_pred, gb_pred],
-#     axis=0
-# )
+ensemble_pred = np.mean(
+    [mlp_pred, svr_pred, arima_pred, rf_pred, gb_pred],
+    axis=0
+)
 
-# print("Ensemble Predictions: ", ensemble_pred)
+print("Ensemble Predictions: ", ensemble_pred)
 test_index = ts.index[-test_size:]
 
 plt.figure(figsize=(12,6))
 
 plt.plot(test_index, y_test, label="Real", linewidth=2)
-# plt.plot(test_index, mlp_pred, label="MLP")
+plt.plot(test_index, mlp_pred, label="MLP")
 plt.plot(test_index, svr_pred, label="SVR")
-# plt.plot(test_index, arima_pred, label="ARIMA")
-# plt.plot(test_index, rf_pred, label="Random Forest")
-# plt.plot(test_index, gb_pred, label="Gradient Boosting")
-# plt.plot(test_index, ensemble_pred, label="Ensemble", linestyle="--", linewidth=2)
+plt.plot(test_index, arima_pred, label="ARIMA")
+plt.plot(test_index, rf_pred, label="Random Forest")
+plt.plot(test_index, gb_pred, label="Gradient Boosting")
+plt.plot(test_index, ensemble_pred, label="Ensemble", linestyle="--", linewidth=2)
 
 plt.title("Models Comparison")
 plt.xlabel("Time Step - D")

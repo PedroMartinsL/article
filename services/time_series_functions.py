@@ -4,6 +4,11 @@ import datetime
 import pickle as pkl
 
 #Code retrieved from https://github.com/domingos108/time_series_functions
+class result_options:
+    test_result = 0
+    val_result = 1
+    train_result = 2
+    save_result = 3
 
 def create_windowing(df, lag_size):
     final_df = None
@@ -113,7 +118,8 @@ def gerenerate_metric_results(y_true, y_pred):
             'POCID': prediction_of_change_in_direction(y_true, y_pred)}
 
 def make_metrics_avaliation(y_true, y_pred, test_size,
-                            val_size, model_params):
+                            val_size,return_type,model_params,
+                            title, prevs_df=None):
     data_size = len(y_true)
     train_size = data_size - (val_size + test_size)
 
@@ -139,15 +145,23 @@ def make_metrics_avaliation(y_true, y_pred, test_size,
         'train_metrics': gerenerate_metric_results(y_true_train, y_pred_train),
         'real_values': y_true,
         'predicted_values': y_pred,
+        'pool_prevs': prevs_df,
         'params': model_params
     }
 
-    return geral_dict
+    if return_type == 0:
+        return geral_dict['test_metrics']
+    elif return_type == 1:
+        return geral_dict['val_metrics']
+    elif return_type == 2:
+        return geral_dict['train_metrics']
+    elif return_type == 3:
+        return save_result(geral_dict, title)
 
 def save_result(dict_result, title):
 
     currentDT = datetime.datetime.now()
-    title = title+"-"+currentDT.strftime('%d%m%y%s')+".pkl"
+    title = title + "-" + currentDT.strftime('%d%m%y%H%M%S') + ".pkl"
 
     with open(title, 'wb') as handle:
         pkl.dump(dict_result, handle)
@@ -158,3 +172,17 @@ def open_saved_result(file_name):
     with open(file_name, 'rb') as handle:
         b = pkl.load(handle)
     return b
+
+def fit_sklearn_model(ts, model, test_size, val_size):
+    train_size = ts.shape[0] - test_size - val_size
+    y_train = ts['actual'][0:train_size]
+    x_train = ts.drop(columns=['actual'])[0:train_size]
+    
+    return model.fit(x_train.values, y_train.values)
+
+
+def predict_sklearn_model(ts, model):
+
+    x = ts.drop(columns=['actual'])
+
+    return model.predict(x.values)

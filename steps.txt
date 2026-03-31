@@ -1,0 +1,8 @@
+#Apply cross validation
+#Seclude models
+#Save params
+
+Perhaps
+usar validação cruzada temporal (TimeSeriesSplit)
+salvar todos os resultados (não só o melhor)
+paralelizar o loop (ficar MUITO mais rápido)
