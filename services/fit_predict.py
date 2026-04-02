@@ -1,6 +1,7 @@
 import time
 import json
 import os
+from typing import Any, Dict, Union
 
 import numpy as np
 import pandas as pd
@@ -19,9 +20,62 @@ class FitPrediction():
     CONFIG_PATH = './'
     SAVE_PATH = './pollution/'
     
-    def get_windowing(ts_normalized, time_window, horizon, prefix=''):
-        ts_windowed = tsf.create_windowing(lag_size=(time_window + (horizon-1)),
-                                           df=ts_normalized)
+    def get_windowing(
+        ts_normalized: Union[pd.Series, pd.DataFrame],
+        time_window: int,
+        horizon: int,
+        prefix: str = ''
+    ) -> pd.DataFrame:
+        """
+        Converts a time series into a supervised learning dataset using lag features (windowing).
+
+        Each row in the output contains:
+        - The previous `time_window` values (lags) as input features
+        - The target value (`actual`) to be predicted
+
+        Example:
+            time_window = 3, horizon = 1
+
+            Original series:
+            [1, 2, 3, 4]
+
+            Output:
+            lag_3  lag_2  lag_1  actual
+            1      2      3       4
+
+        Parameters
+        ----------
+        ts_normalized : pd.Series or pd.DataFrame
+            Input time series (normalized or not). It must contain the target values
+            (usually in a column named 'actual') or be a single series.
+
+        time_window : int
+            Number of past observations (lags) used as input features.
+
+        horizon : int
+            Forecast horizon:
+            - 1 → one-step ahead prediction
+            - >1 → multi-step forecast (only the final step is kept as target)
+
+        prefix : str, optional (default = '')
+            Prefix added to column names (useful when working with exogenous variables).
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame containing:
+            - Input features: lag_1, lag_2, ..., lag_n
+            - Target column: 'actual'
+
+            Format:
+                [lag_n, ..., lag_1, actual]
+
+        Notes
+        -----
+        - Intermediate horizon columns (hor_*) are removed
+        - Only the final target ('actual') is kept
+        - This transformation allows traditional ML models to work with time series data
+        """
 
         columns_lag = [f'lag_{l}{prefix}'for l in reversed(
             range(1, time_window+1))]
@@ -32,8 +86,89 @@ class FitPrediction():
         ts_windowed = ts_windowed[columns_lag+['actual']]
         return ts_windowed
 
-    def single_model(title, time_window, time_series, model, test_size,
-                     val_size, return_option, normalize, horizon=1, recursive=False, use_exo_future=True):
+
+    def single_model(
+        title: str,
+        time_window: int,
+        time_series: pd.DataFrame,
+        model: Any,
+        test_size: int,
+        val_size: int,
+        return_option: Any,
+        normalize: bool,
+        horizon: int = 1,
+        recursive: bool = False,
+        use_exo_future: bool = True
+    ) -> Dict:
+        """
+        Trains, predicts, and evaluates a single time series model using windowing.
+
+        This function performs a complete pipeline:
+        - Optional normalization (MinMaxScaler)
+        - Conversion to supervised format (windowing / lag features)
+        - Train/validation/test split
+        - Model training
+        - Prediction (standard or recursive)
+        - Metric evaluation
+
+        Parameters
+        ----------
+        title : str
+            Identifier/name of the model (used for logging and results).
+
+        time_window : int
+            Number of lagged observations used as input features.
+
+        time_series : pd.DataFrame
+            Time series data. Must contain a column named 'actual'.
+            Can also include exogenous variables (extra columns).
+
+        model : Any
+            Machine learning model (e.g., sklearn estimator).
+
+        test_size : int
+            Number of samples reserved for testing.
+
+        val_size : int
+            Number of samples reserved for validation.
+
+        return_option : Any
+            Defines which dataset (train/val/test) metrics should be returned.
+
+        normalize : bool
+            If True, applies MinMax scaling to the data (fit only on training set).
+
+        horizon : int, optional (default = 1)
+            Forecast horizon:
+            - 1 → one-step ahead prediction
+            - >1 → multi-step forecasting
+
+        recursive : bool, optional (default = False)
+            If True, performs recursive forecasting (step-by-step prediction).
+            Not supported when using exogenous variables.
+
+        use_exo_future : bool, optional (default = True)
+            If True, uses future values of exogenous variables.
+            Otherwise, uses only past values.
+
+        Returns
+        -------
+        Dict
+            A dictionary containing:
+            - Evaluation metrics (RMSE, MAE, MAPE, etc.)
+            - Real values (ground truth)
+            - Predicted values
+            - Model parameters
+            - Optional additional outputs
+
+        Notes
+        -----
+        - Avoids data leakage by fitting scalers only on training data
+        - Converts time series into supervised format using lag features
+        - Supports exogenous variables (additional predictors)
+        - Supports recursive forecasting (except with exogenous data)
+        - Designed to work with sklearn-like models
+        """
         train_size = len(time_series) - test_size
 
         is_exogen = False
@@ -123,8 +258,80 @@ class FitPrediction():
         )
         return results
 
-    def do_grid_search(real, test_size, val_size, parameters, model, horizon,
-                       recursive, use_exegen_future, model_execs):
+    def do_grid_search(
+        real: pd.DataFrame,
+        test_size: int,
+        val_size: int,
+        parameters: Dict,
+        model: Any,
+        horizon: int,
+        recursive: bool,
+        use_exegen_future: bool,
+        model_execs: int
+    ) -> Dict:
+        """
+        Performs a manual grid search over hyperparameters for a time series model.
+
+        This function evaluates multiple combinations of hyperparameters using
+        a predefined parameter grid. For each combination, the model is trained
+        multiple times and the average performance (RMSE) is used to select
+        the best configuration.
+
+        Parameters
+        ----------
+        real : pd.DataFrame
+            Time series dataset. Must contain a column named 'actual' and optionally
+            exogenous variables.
+
+        test_size : int
+            Number of samples reserved for testing.
+
+        val_size : int
+            Number of samples reserved for validation.
+
+        parameters : Dict
+            Dictionary defining the hyperparameter search space.
+            Example:
+                {
+                    'max_depth': [5, 10],
+                    'n_estimators': [100, 200],
+                    'time_window': [12, 24]
+                }
+
+        model : Any
+            Base machine learning model (e.g., sklearn estimator).
+
+        horizon : int
+            Forecast horizon (number of steps ahead to predict).
+
+        recursive : bool
+            If True, uses recursive forecasting strategy.
+
+        use_exegen_future : bool
+            If True, allows the use of future values of exogenous variables.
+
+        model_execs : int
+            Number of times each parameter configuration is executed.
+            The final score is the average across executions.
+
+        Returns
+        -------
+        Dict
+            A dictionary containing:
+            - 'best_result': dict with:
+                - 'time_window': best lag size used
+                - 'RMSE': best (lowest) average RMSE achieved
+            - 'model': the best trained model (with optimal hyperparameters)
+
+        Notes
+        -----
+        - Uses RMSE as the optimization metric (lower is better)
+        - Performs a manual grid search (not sklearn GridSearchCV)
+        - Repeats each experiment multiple times for robustness
+        - Uses validation set (not test set) for model selection
+        - `time_window` is treated separately from model hyperparameters
+        - Does NOT perform true cross-validation (fixed split is used)
+        """
 
         best_model = None
         metric = 'RMSE'
@@ -175,7 +382,67 @@ class FitPrediction():
         return result_model
 
 
-    def train_sklearn(model_execs, data_title, parameters, model):
+    def train_sklearn(
+        model_execs: int,
+        data_title: str,
+        parameters: Dict,
+        model: Any
+    ) -> None:
+        """
+        Executes the full training pipeline for a sklearn-based model,
+        including hyperparameter tuning via grid search and result persistence.
+
+        This function acts as a high-level orchestrator that:
+        - Iterates over hyperparameter combinations
+        - Calls the grid search procedure
+        - Trains models multiple times for robustness
+        - Selects the best configuration
+        - Saves results (e.g., metrics, predictions, model artifacts)
+
+        Parameters
+        ----------
+        model_execs : int
+            Number of times each model configuration is executed.
+            Used to average performance and reduce randomness effects.
+
+        data_title : str
+            Identifier for the experiment (e.g., 'svr', 'mlp', 'rf').
+            Typically used for naming output files and logs.
+
+        parameters : Dict
+            Dictionary defining the hyperparameter search space.
+            Must include 'time_window' for time series lag configuration.
+
+            Example:
+                {
+                    'n_estimators': [100, 200],
+                    'max_depth': [5, 10],
+                    'time_window': [12]
+                }
+
+        model : Any
+            Machine learning model following sklearn interface
+            (must implement fit() and predict()).
+
+        Returns
+        -------
+        None
+            This function does not return values directly.
+            Instead, it saves results to disk (e.g., .pkl files),
+            including:
+            - Best model parameters
+            - Evaluation metrics
+            - Predictions
+            - Real values
+
+        Notes
+        -----
+        - Internally uses `do_grid_search` to find the best hyperparameters
+        - Uses `single_model` to train and evaluate each configuration
+        - Designed for time series forecasting with lag features
+        - Supports multiple executions per configuration for stability
+        - Typically used for experiments and batch model training
+        """
 
         with open(f'{FitPrediction.CONFIG_PATH}models_config.json') as f:
             data = json.load(f)

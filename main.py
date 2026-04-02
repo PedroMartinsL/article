@@ -79,7 +79,6 @@ if __name__ == "__main__":
     for name, pred in predictions:
         plt.plot(test_index, pred, label=name, alpha=0.7)
     
-        
     # 🔥 Detach do ensemble
     plt.plot(test_index, ensemble_pred, linestyle="--", linewidth=3, label="Ensemble")
 
