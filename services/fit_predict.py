@@ -1,10 +1,12 @@
+import pickle
 import time
 import json
 import os
-from typing import Any, Dict, Union
+from typing import Any, Dict, Optional, Union
 
 import numpy as np
 import pandas as pd
+from pmdarima import auto_arima
 from sklearn.model_selection import ParameterGrid
 from tqdm import tqdm
 
@@ -18,7 +20,7 @@ from sklearn import preprocessing
 class FitPrediction():
 
     CONFIG_PATH = './'
-    SAVE_PATH = './pollution/'
+    SAVE_PATH = './models/results/'
     
     def get_windowing(
         ts_normalized: Union[pd.Series, pd.DataFrame],
@@ -76,6 +78,10 @@ class FitPrediction():
         - Only the final target ('actual') is kept
         - This transformation allows traditional ML models to work with time series data
         """
+        ts_windowed = tsf.create_windowing(
+            lag_size=(time_window + (horizon-1)),
+            df=ts_normalized
+        )
 
         columns_lag = [f'lag_{l}{prefix}'for l in reversed(
             range(1, time_window+1))]
@@ -467,8 +473,6 @@ class FitPrediction():
 
                 real = get_dataframe_by_station_and_pollutant(station_code=station_code, pollutant=pollutant, save_cv=False)
 
-                print("Tamanho total:", len(real))
-
                 gs_result = FitPrediction.do_grid_search(
                     real=real, 
                     test_size=test_size,
@@ -481,11 +485,10 @@ class FitPrediction():
                     model_execs=model_execs
                 )
 
-                print(gs_result)
-                save_path_actual = FitPrediction.SAVE_PATH+str(type_data)+'-'+data_title+'/'
+                save_path_actual = FitPrediction.get_save_path_actual(type_data, title_temp)
                 os.makedirs(save_path_actual, exist_ok=True)
 
-                title_temp = str(type_data) + '-' + data_title
+                title_temp = FitPrediction.get_title_temp(type_data, title_temp)
                 for _ in range(0, model_execs):
                     FitPrediction.single_model(
                         save_path_actual+title_temp, 
@@ -501,3 +504,161 @@ class FitPrediction():
                         use_exegen_future
                     )
                     time.sleep(1)
+
+    def get_save_path_actual(type_data, data_title:str):
+        return FitPrediction.SAVE_PATH+str(type_data)+'-'+data_title+'/'
+    
+    def get_title_temp(type_data, data_title):
+        return str(type_data) + '-' + data_title
+
+
+class ArimaFitPrediction(FitPrediction):
+
+    def train_arima(
+        model_execs: int,
+        data_title: str,
+        parameters: Optional[Dict] = None,
+        normalize: bool = False
+    ) -> None:
+        """
+        Training pipeline for ARIMA / AutoARIMA with optional normalization.
+
+        Parameters
+        ----------
+        model_execs : int
+            Number of executions per experiment.
+
+        data_title : str
+            Name for saving results (e.g., 'arima').
+
+        parameters : dict, optional
+            Parameters for auto_arima (optional).
+
+        normalize : bool, default=False
+            If True, applies MinMax scaling to the series (fit only on train).
+        """
+
+        with open(f'{FitPrediction.CONFIG_PATH}models_config.json') as f:
+            data = json.load(f)
+
+        for i in data:
+
+            if i['activate'] == 1:
+
+                # Config
+                test_size = i['test_size']
+                val_size = i['val_size']
+                type_data = i['type_data']
+                # horizon = i['horizon']
+
+                pollutant = i['pollutant']
+                station_code = i['station_code']
+
+                # Load data
+                real = get_dataframe_by_station_and_pollutant(
+                    station_code=station_code,
+                    pollutant=pollutant
+                )
+
+                ts = real['actual']
+
+                # Split
+                train = ts[:-test_size]
+                test = ts[-test_size:]
+
+                save_path_actual = FitPrediction.get_save_path_actual(type_data, data_title)
+                os.makedirs(save_path_actual, exist_ok=True)
+
+                title_temp = FitPrediction.get_title_temp(type_data, data_title)
+
+                for _ in range(model_execs):
+
+                    if normalize:
+                        scaler = preprocessing.MinMaxScaler()
+                        train_used = scaler.fit_transform(train.values.reshape(-1, 1)).flatten()
+                    else:
+                        train_used = train.values
+
+                    model = auto_arima(
+                        train_used,
+                        **(parameters or {})
+                    )
+
+                    train_size = len(ts) - (val_size + test_size)
+
+                    y_pred_full = ArimaFitPrediction.walk_forward_arima(
+                        ts=ts,
+                        train_size=train_size,
+                        val_size=val_size,
+                        test_size=test_size,
+                        normalize=normalize,
+                        scaler=scaler if normalize else None,
+                        parameters=parameters
+                    )
+
+                    # EVALUATION
+                    tsf.make_metrics_avaliation(
+                        y_true=ts,
+                        y_pred=y_pred_full,
+                        test_size=test_size,
+                        val_size=val_size,
+                        return_type=tsf.result_options.save_result,
+                        model_params={'order': model.order},
+                        title=save_path_actual+title_temp,
+                        prevs_df=None
+                    )
+
+                    time.sleep(1)
+
+
+    def walk_forward_arima(
+        ts,
+        train_size,
+        val_size,
+        test_size,
+        normalize=False,
+        scaler=None,
+        parameters=None
+    ):
+        # -----------------------------
+        # Preparação dos dados
+        # -----------------------------
+        if normalize:
+            full_series = scaler.transform(ts.values.reshape(-1, 1)).flatten()
+            train_used = full_series[:train_size]
+        else:
+            full_series = ts.values
+            train_used = full_series[:train_size]
+
+        history = list(train_used)
+
+        preds = []
+
+        total_steps = val_size + test_size
+        start_index = train_size
+
+        model = auto_arima(
+            history,
+            **(parameters or {})
+        )
+
+        # -----------------------------
+        # Walk-forward
+        # -----------------------------
+        for i in range(total_steps):
+
+            # pred 1 step
+            yhat = model.predict(n_periods=1)[0]
+            preds.append(yhat)
+            real_value = full_series[start_index + i]
+            model.update(real_value)
+
+        if normalize:
+            preds = scaler.inverse_transform(
+                np.array(preds).reshape(-1, 1)
+            ).flatten()
+
+        y_pred_full = np.full(len(ts), np.nan)
+        y_pred_full[-(val_size + test_size):] = preds
+
+        return y_pred_full

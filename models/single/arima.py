@@ -1,8 +1,8 @@
-from pmdarima import auto_arima
+from pmdarima import ARIMA
 from services.fit_predict import FitPrediction
 
-model_execs = 10
-data_title = 'auto_arima'
+model_execs = 1
+data_title = 'arima'
 
 parameters = {
     'start_p': 1,
@@ -14,37 +14,5 @@ parameters = {
     'm': 7,
 }
 
-def train_auto_arima(model_execs, data_title, parameters, series):
-    results = []
-
-    for _ in range(model_execs):
-        model = auto_arima(
-            series,
-            start_p=parameters['start_p'],
-            max_p=parameters['max_p'],
-            start_q=parameters['start_q'],
-            max_q=parameters['max_q'],
-            d=parameters['d'],
-            seasonal=parameters['seasonal'],
-            m=parameters['m'],
-            trace=False,
-            error_action='ignore',
-            suppress_warnings=True
-        )
-
-        forecast = model.predict(n_periods=1)
-
-        results.append({
-            'order': model.order,
-            'aic': model.aic(),
-            'forecast': forecast
-        })
-
-    return results
-
-results = train_auto_arima(
-    model_execs,
-    data_title,
-    parameters,
-    series=None  # sua série (ex: pandas Series)
-)
+model = ARIMA()
+FitPrediction.train_sklearn(model_execs, data_title, parameters, model)
