@@ -485,10 +485,10 @@ class FitPrediction():
                     model_execs=model_execs
                 )
 
-                save_path_actual = FitPrediction.get_save_path_actual(type_data, title_temp)
+                save_path_actual = FitPrediction.get_save_path_actual(type_data, data_title)
                 os.makedirs(save_path_actual, exist_ok=True)
 
-                title_temp = FitPrediction.get_title_temp(type_data, title_temp)
+                title_temp = FitPrediction.get_title_temp(type_data, data_title)
                 for _ in range(0, model_execs):
                     FitPrediction.single_model(
                         save_path_actual+title_temp, 
@@ -594,6 +594,11 @@ class ArimaFitPrediction(FitPrediction):
                         parameters=parameters,
                         horizon=horizon
                     )
+
+                    # y_pred_train = model.predict_in_sample()
+                    # y_pred_test = model.predict(n_periods=len(test))
+
+                    # y_pred_full = np.concatenate([y_pred_train, y_pred_test])
 
                     # EVALUATION
                     tsf.make_metrics_avaliation(

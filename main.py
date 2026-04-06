@@ -1,54 +1,18 @@
-import pickle
+from typing import List
 import numpy as np
 import matplotlib.pyplot as plt
 
+from models.entities.EnsembleModel import EnsembleModel
+from models.entities.MLModel import MLModel
+
 from extractor import get_dataframe_by_station_and_pollutant
-
-
-def load_models(pkl_paths):
-    models = []
-
-    for item in pkl_paths:
-        for name, path in item.items():
-            with open("models/results/"+path, 'rb') as f:
-                model = pickle.load(f)
-                models.append((name, model))
-
-    return models
-
-
-def ensemble_predict(models, X):
-    predictions = []
-
-    for model in models:
-        pred = model.predict(X)
-        predictions.append(pred)
-
-    predictions = np.array(predictions)
-    ensemble_pred = np.mean(predictions, axis=0)
-
-    return predictions, ensemble_pred
-
-def get_predictions(models):
-    predictions = []
-    for name, model_data in models:
-        pred = model_data['predicted_values']
-        predictions.append((name, pred))
-    return predictions
-
-def get_ensemble(predictions):
-
-    # weights = [0.2, 0.5]
-    return np.mean(
-        [pred for _, pred in predictions],
-        axis=0
-    )
 
 
 if __name__ == "__main__":
 
     pkl_files = [
-        {"ARIMA": "1-arima/1-arima-050426221319.pkl"},
+        {"ARIMA": "1-arima/1-arima-050426121144.pkl"},
+        {"SVR": "1-svr/1-svr(tw12)-060426000526.pkl"},
     ]
 
     pollutant = "MP10"
@@ -59,33 +23,20 @@ if __name__ == "__main__":
 
     ts = df['actual']
     
-    models = load_models(pkl_files)
-    y_test = models[0][1]['real_values']
+    models: List[MLModel] = MLModel.load_models(pkl_files)
+    y_test = models[0].real_values
     X_test = np.arange(1, 21).reshape(-1, 1)
 
-    predictions = get_predictions(models=models)
+    predictions: list = MLModel.get_predictions(models=models)
 
-    ensemble_pred = get_ensemble(predictions=predictions)
+    ensemble_class = EnsembleModel(name="Ensemble", predictions=predictions, station_code=station_code, pollutant=pollutant)
+
+    ensemble_pred = ensemble_class.predicted_values
 
     test_index = ts.index[-len(ensemble_pred):]
 
-    # PLOT
-    plt.figure(figsize=(12, 6))
+    models.append(ensemble_class)
 
-    plt.plot(test_index, y_test, label="Real", linewidth=3)
+    MLModel.plot_perfomance(test_index, y_test, ensemble_pred, pollutant, predictions)
 
-    #Predictions
-    for name, pred in predictions:
-        plt.plot(test_index, pred, label=name, alpha=0.7)
-    
-    # 🔥 Detach do ensemble
-    plt.plot(test_index, ensemble_pred, linestyle="--", linewidth=3, label="Ensemble")
-
-    plt.title("Models Comparison")
-    plt.xlabel("Time Step - D")
-    plt.ylabel(pollutant)
-
-    plt.legend()
-    plt.grid()
-
-    plt.show()
+    MLModel.plot_test_metrics_table(models)
