@@ -1,18 +1,21 @@
 from pmdarima import ARIMA
-from services.fit_predict import FitPrediction
+from services.fit_predict import ArimaFitPrediction
 
 model_execs = 1
 data_title = 'arima'
 
 parameters = {
-    'start_p': 1,
-    'max_p': 3,
-    'start_q': 0,
-    'max_q': 2,
-    'd': None,
-    'seasonal': True,
-    'm': 7,
+    "order": (1,1,1),
+    "seasonal_order": (0,0,0,0),
+    "trend": "c",
+    "method": "lbfgs",
+    "maxiter": 100
 }
 
-model = ARIMA()
-FitPrediction.train_sklearn(model_execs, data_title, parameters, model)
+ArimaFitPrediction.train_arima(
+    model_execs=model_execs,
+    data_title=data_title,
+    normalize=False,
+    parameters=parameters,
+    auto=False
+)

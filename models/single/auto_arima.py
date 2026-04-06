@@ -16,5 +16,6 @@ ArimaFitPrediction.train_arima(
     model_execs=model_execs,
     data_title=data_title,
     normalize=False,
-    parameters=parameters
+    parameters=parameters,
+    auto=True
 )

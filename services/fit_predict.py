@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, Union
 
 import numpy as np
 import pandas as pd
-from pmdarima import auto_arima
+from pmdarima import ARIMA, auto_arima
 from sklearn.model_selection import ParameterGrid
 from tqdm import tqdm
 
@@ -517,8 +517,9 @@ class ArimaFitPrediction(FitPrediction):
     def train_arima(
         model_execs: int,
         data_title: str,
+        auto: bool = True,
         parameters: Optional[Dict] = None,
-        normalize: bool = False
+        normalize: bool = False,
     ) -> None:
         """
         Training pipeline for ARIMA / AutoARIMA with optional normalization.
@@ -549,7 +550,7 @@ class ArimaFitPrediction(FitPrediction):
                 test_size = i['test_size']
                 val_size = i['val_size']
                 type_data = i['type_data']
-                # horizon = i['horizon']
+                horizon = i['horizon']
 
                 pollutant = i['pollutant']
                 station_code = i['station_code']
@@ -564,7 +565,7 @@ class ArimaFitPrediction(FitPrediction):
 
                 # Split
                 train = ts[:-test_size]
-                test = ts[-test_size:]
+                # test = ts[-test_size:]
 
                 save_path_actual = FitPrediction.get_save_path_actual(type_data, data_title)
                 os.makedirs(save_path_actual, exist_ok=True)
@@ -579,10 +580,7 @@ class ArimaFitPrediction(FitPrediction):
                     else:
                         train_used = train.values
 
-                    model = auto_arima(
-                        train_used,
-                        **(parameters or {})
-                    )
+                    model = ArimaFitPrediction.build_arima(train_used, parameters, auto)
 
                     train_size = len(ts) - (val_size + test_size)
 
@@ -593,7 +591,8 @@ class ArimaFitPrediction(FitPrediction):
                         test_size=test_size,
                         normalize=normalize,
                         scaler=scaler if normalize else None,
-                        parameters=parameters
+                        parameters=parameters,
+                        horizon=horizon
                     )
 
                     # EVALUATION
@@ -618,7 +617,8 @@ class ArimaFitPrediction(FitPrediction):
         test_size,
         normalize=False,
         scaler=None,
-        parameters=None
+        parameters=None,
+        horizon=1
     ):
         # -----------------------------
         # Preparação dos dados
@@ -648,7 +648,7 @@ class ArimaFitPrediction(FitPrediction):
         for i in range(total_steps):
 
             # pred 1 step
-            yhat = model.predict(n_periods=1)[0]
+            yhat = model.predict(n_periods=horizon)[0]
             preds.append(yhat)
             real_value = full_series[start_index + i]
             model.update(real_value)
@@ -662,3 +662,16 @@ class ArimaFitPrediction(FitPrediction):
         y_pred_full[-(val_size + test_size):] = preds
 
         return y_pred_full
+    
+
+    def build_arima(train_used, parameters, auto):
+        try:
+            if auto:
+                return auto_arima(train_used, **(parameters or {}))
+            else:
+                model = ARIMA(**(parameters or {}))
+                model.fit(train_used)
+                return model
+            
+        except Exception as e:
+            print("Error building arima model: ", e)

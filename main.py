@@ -48,13 +48,12 @@ def get_ensemble(predictions):
 if __name__ == "__main__":
 
     pkl_files = [
-        {"SVR": "1-svr/1-svr(tw12)-020426125514.pkl"},
+        {"ARIMA": "1-arima/1-arima-050426221319.pkl"},
     ]
-
-    ensemble = True
 
     pollutant = "MP10"
     station_code = "SP71"
+
     #Entry
     df = get_dataframe_by_station_and_pollutant(station_code, pollutant)
 
