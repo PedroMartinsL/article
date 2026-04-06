@@ -30,7 +30,7 @@ def get_dataframe_by_station_and_pollutant(station_code: str, pollutant: str, sa
     dataframe = df_final[
         (df_final["Codigo"] == station_code) &
         (df_final["Poluente"] == pollutant)
-    ]
+    ].copy()
 
     dataframe["Hora"] = dataframe["Hora"].replace("24:00", "00:00")
 

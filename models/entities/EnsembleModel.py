@@ -4,25 +4,24 @@ from models.entities.MLModel import MLModel
 from services import time_series_functions as tsf
 
 class EnsembleModel(MLModel):
-    def __init__(self, name: str, predictions: list, station_code: str, pollutant:str, **model_data: dict):
+    def __init__(self, name: str, predictions: list, station_code: str, pollutant: str, ts, **model_data: dict):
         """
             predictions: list of predictions to combine in the ensemble
             station_code / pollutant: used to fetch the actual values
             model_data: any other data to pass to MLModel (**kwargs)
         """
-        y_pred = EnsembleModel.get_ensemble(predictions=predictions)
-        test_size = len(y_pred)
+        # Ensemble
+        y_pred = np.array(EnsembleModel.get_ensemble(predictions=predictions)).reshape(-1)
+        y_true = ts.values.reshape(-1)
 
-        ts = get_dataframe_by_station_and_pollutant(
-            station_code=station_code,
-            pollutant=pollutant
-        )
-        y_true = ts.values
+        y_true = y_true[-len(y_pred):]
 
-        y_true_test = y_true[-test_size:]
-        y_pred_test = y_pred[-test_size:]
+        valid_mask = ~np.isnan(y_pred)
 
-        # Add ensemble metrics into the dict
+        y_pred_test = y_pred[valid_mask]
+        y_true_test = y_true[valid_mask]
+
+
         model_data['test_metrics'] = tsf.gerenerate_metric_results(y_true_test, y_pred_test)
         model_data['real_values'] = y_true
         model_data['predicted_values'] = y_pred

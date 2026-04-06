@@ -595,11 +595,6 @@ class ArimaFitPrediction(FitPrediction):
                         horizon=horizon
                     )
 
-                    # y_pred_train = model.predict_in_sample()
-                    # y_pred_test = model.predict(n_periods=len(test))
-
-                    # y_pred_full = np.concatenate([y_pred_train, y_pred_test])
-
                     # EVALUATION
                     tsf.make_metrics_avaliation(
                         y_true=ts,

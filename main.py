@@ -29,7 +29,7 @@ if __name__ == "__main__":
 
     predictions: list = MLModel.get_predictions(models=models)
 
-    ensemble_class = EnsembleModel(name="Ensemble", predictions=predictions, station_code=station_code, pollutant=pollutant)
+    ensemble_class = EnsembleModel(name="Ensemble", predictions=predictions, station_code=station_code, ts=df, pollutant=pollutant)
 
     ensemble_pred = ensemble_class.predicted_values
 
