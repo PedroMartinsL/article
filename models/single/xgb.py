@@ -1,5 +1,5 @@
-from xgboost import XGBRegressor
 from services.fit_predict import FitPrediction
+from xgboost import XGBRegressor
 
 model_execs = 10
 data_title = 'xgb'

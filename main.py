@@ -11,8 +11,9 @@ from extractor import get_dataframe_by_station_and_pollutant
 if __name__ == "__main__":
 
     pkl_files = [
-        {"ARIMA": "1-arima/1-arima-050426121144.pkl"},
+        # {"ARIMA": "1-arima/1-arima-090426000326.pkl"},
         {"SVR": "1-svr/1-svr(tw12)-060426000526.pkl"},
+        {"GB": "1-gb/1-gb(tw12)-080426233533.pkl"},
     ]
 
     pollutant = "MP10"
