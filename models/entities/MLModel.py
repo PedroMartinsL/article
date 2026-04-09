@@ -1,6 +1,7 @@
 import os
 import pickle
 from matplotlib import pyplot as plt
+import numpy as np
 import pandas as pd
 
 class MLModel():
@@ -34,7 +35,7 @@ class MLModel():
             predictions.append((name, pred))
         return predictions
     
-    def load_models(pkl_paths: dict):
+    def load_models(pkl_paths: dict, merge_models: bool = False):
         """
             Load models by path
 
@@ -42,19 +43,90 @@ class MLModel():
 
             pkl_files = [
                 {"ARIMA": "1-arima/1-arima-050426221319.pkl"},
-            ]
+            ]           
         """
-        models = []
+        models = {}
 
         for item in pkl_paths:
             for name, path in item.items():
                 with open(os.path.join("models", "results", path), 'rb') as f:
                     model_data = pickle.load(f)
-                    class_model = MLModel(name, **model_data)
-                    models.append(class_model)
+                    new_model = MLModel(name, **model_data)
 
-        return models
-    
+                    if name not in models:
+                        models[name] = {
+                            "models": [new_model]
+                        }
+                    else:
+                        models[name]["models"].append(new_model)
+        
+        if merge_models:
+            return MLModel.get_mean_merged_models(models)
+        else:
+            return [
+                model
+                for data in models.values()
+                for model in data["models"]
+            ]
+
+    def get_mean_merged_models(models):
+        final_models = []
+
+        for name, data in models.items():
+            model_list = data["models"]
+
+            # predicted_values (mean) 
+            preds = np.array([m.predicted_values for m in model_list])
+            mean_preds = preds.mean(axis=0)
+
+            # same values
+            real_values = model_list[0].real_values
+
+            # pool_prevs (concat)
+            pool_prevs = None
+            if model_list[0].pool_prevs is not None:
+                pool_prevs = np.concatenate(
+                    [np.array(m.pool_prevs) for m in model_list],
+                    axis=0
+                )
+
+            # params 
+            params = model_list[0].params
+
+            def mean_metrics(metric_list):
+                if metric_list[0] is None:
+                    return None
+                
+                first = metric_list[0]
+                
+                if isinstance(first, dict):
+                    return {
+                        k: np.mean([m[k] for m in metric_list if k in m])
+                        for k in first.keys()
+                    }
+                else:
+                    raise ValueError("Invalid value to mean the metrics.")
+                
+            test_metrics = mean_metrics([m.test_metrics for m in model_list])
+            val_metrics = mean_metrics([m.val_metrics for m in model_list])
+            train_metrics = mean_metrics([m.train_metrics for m in model_list])
+
+            # ---------- cria modelo final ----------
+            merged = MLModel(
+                name,
+                predicted_values=mean_preds,
+                real_values=real_values,
+                pool_prevs=pool_prevs,
+                params=params,
+                test_metrics=test_metrics,
+                val_metrics=val_metrics,
+                train_metrics=train_metrics
+            )
+
+            final_models.append(merged)
+
+        return final_models
+            
     def plot_test_metrics_table(models):
         """
             models: list of MLModel or EnsembleModel objects
