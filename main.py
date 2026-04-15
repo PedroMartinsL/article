@@ -1,6 +1,7 @@
 from typing import List
 import numpy as np
 import matplotlib.pyplot as plt
+from pmdarima import plot_acf, plot_pacf
 
 from models.entities.EnsembleModel import EnsembleModel
 from models.entities.MLModel import MLModel
@@ -11,9 +12,12 @@ from extractor import get_dataframe_by_station_and_pollutant
 if __name__ == "__main__":
 
     pkl_files = [
-        # {"ARIMA": "1-arima/1-arima-090426000326.pkl"},
-        {"SVR": "1-svr/1-svr(tw12)-060426000526.pkl"},
+        {"ARIMA": "1-arima/1-arima-090426000326.pkl"},
+        {"SVR": "1-svr/1-svr(tw12)-140426163247.pkl"},
         {"GB": "1-gb/1-gb(tw12)-080426233533.pkl"},
+        {"MLP": "1-mlp/1-mlp(tw12)-090426000516.pkl"},
+        {"RF": "1-rf/1-rf(tw12)-090426000939.pkl"},
+        {"XGB": "1-xgb/1-xgb(tw12)-080426235657.pkl"},
     ]
 
     pollutant = "MP10"

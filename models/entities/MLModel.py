@@ -132,7 +132,7 @@ class MLModel():
             models: list of MLModel or EnsembleModel objects
             Each object must have the attribute .test_metrics (a dictionary of metrics)
         """
-    
+
         data = []
         for m in models:
             row = {'Model': m.name}
@@ -142,42 +142,24 @@ class MLModel():
         df = pd.DataFrame(data)
         
         # PLotting table
-        fig, ax = plt.subplots(figsize=(10, len(models)*0.5 + 1))
+        fig, ax = plt.subplots(figsize=(len(df.columns)*2, len(models)*0.6 + 1))
         ax.axis('off')
+
         table = ax.table(
             cellText=df.values,
             colLabels=df.columns,
             cellLoc='center',
             loc='center'
         )
+
         table.auto_set_font_size(False)
-        table.set_fontsize(10)
-        table.auto_set_column_width(col=list(range(len(df.columns))))
+        table.set_fontsize(8)
+        table.scale(1.2, 1.2)
 
         plt.title("Models Test Metrics", fontsize=14)
+        plt.tight_layout()
         plt.show()
-
-    # def plot_perfomance(test_index, y_test, ensemble_pred, y_label, predictions):
-    #     # PLOT
-    #     plt.figure(figsize=(12, 6))
-
-    #     plt.plot(test_index, y_test, label="Real", linewidth=3)
-
-    #     #Predictions
-    #     for name, pred in predictions:
-    #         plt.plot(test_index, pred, label=name, alpha=0.7)
         
-    #     # Detach do ensemble
-    #     plt.plot(test_index, ensemble_pred, linestyle="--", linewidth=3, label="Ensemble")
-
-    #     plt.title("Models Comparison")
-    #     plt.xlabel("Time Step - D")
-    #     plt.ylabel(y_label)
-
-    #     plt.legend()
-    #     plt.grid()
-
-    #     plt.show()
 
     def plot_perfomance(test_index, y_test, ensemble_pred, y_label, predictions):
         import matplotlib.pyplot as plt

@@ -192,7 +192,7 @@ class FitPrediction():
 
         # normalize
         if normalize:
-            min_max_scaler = preprocessing.MinMaxScaler()
+            min_max_scaler = preprocessing.StandardScaler()
             min_max_scaler.fit(
                 time_series['actual'].values[0:train_size].reshape(-1, 1))
             ts_normalized = min_max_scaler.transform(
@@ -200,7 +200,7 @@ class FitPrediction():
             ts_normalized = pd.DataFrame({'actual': ts_normalized.flatten()})
 
             if is_exogen:
-                min_max_scaler_x = preprocessing.MinMaxScaler()
+                min_max_scaler_x = preprocessing.StandardScaler()
                 min_max_scaler_x.fit(exogens.values[0:train_size])
                 exogens_norm = min_max_scaler_x.transform(exogens)
                 exogens_norm = pd.DataFrame(
@@ -548,7 +548,8 @@ class ArimaFitPrediction(FitPrediction):
 
                 # Config
                 test_size = i['test_size']
-                val_size = i['val_size']
+                # val_size = i['val_size']
+                val_size = 0
                 type_data = i['type_data']
                 horizon = i['horizon']
 

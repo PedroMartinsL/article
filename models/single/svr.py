@@ -15,6 +15,6 @@ parameters = {
     'time_window': [12]
     }
 
-model = SVR(max_iter=10000)
+model = SVR(max_iter=100000)
 FitPrediction.train_sklearn(model_execs, data_title, parameters, model)
 
