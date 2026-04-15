@@ -510,6 +510,16 @@ class FitPrediction():
     
     def get_title_temp(type_data, data_title):
         return str(type_data) + '-' + data_title
+    
+    def get_configuration_by_id(id: int):
+        with open(f'{FitPrediction.CONFIG_PATH}models_config.json') as f:
+            data = json.load(f)
+
+        for item in data:
+            if item.get("type_data") == id:
+                return item
+
+        return None
 
 
 class ArimaFitPrediction(FitPrediction):

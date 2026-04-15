@@ -1,10 +1,9 @@
 import numpy as np
-from extractor import get_dataframe_by_station_and_pollutant
 from models.entities.MLModel import MLModel
 from services import time_series_functions as tsf
 
 class EnsembleModel(MLModel):
-    def __init__(self, name: str, predictions: list, station_code: str, pollutant: str, ts, **model_data: dict):
+    def __init__(self, name: str, predictions: list, ts, **model_data: dict):
         """
             predictions: list of predictions to combine in the ensemble
             station_code / pollutant: used to fetch the actual values

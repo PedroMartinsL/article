@@ -3,6 +3,7 @@ import pickle
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
+from services import time_series_functions as tsf
 
 class MLModel():
     def __init__(self, name: str, **model_data: dict):
@@ -161,38 +162,35 @@ class MLModel():
         plt.show()
         
 
-    def plot_perfomance(test_index, y_test, ensemble_pred, y_label, predictions):
+    def plot_perfomance(y_test, ensemble_pred, y_label, predictions):
         import matplotlib.pyplot as plt
         import numpy as np
 
-        # Garantir arrays 1D
+        # Base index
+        test_index = y_test.index
+
+        # arrays 1D
         y_test = np.asarray(y_test).reshape(-1)
         ensemble_pred = np.asarray(ensemble_pred).reshape(-1)
-        test_index = np.asarray(test_index)
-
-        # Descobrir menor tamanho global
-        lengths = [len(test_index), len(y_test), len(ensemble_pred)]
-        lengths += [len(np.asarray(pred).reshape(-1)) for _, pred in predictions]
-
-        min_len = min(lengths)
-
-        # Alinhar tudo
-        test_index = test_index[-min_len:]
-        y_test = y_test[-min_len:]
-        ensemble_pred = ensemble_pred[-min_len:]
 
         plt.figure(figsize=(12, 6))
 
         # Real
         plt.plot(test_index, y_test, label="Real", linewidth=3)
 
-        # Predictions individuais
+        # Predictions
         for name, pred in predictions:
             pred = np.asarray(pred).reshape(-1)
-            pred = pred[-min_len:]
+
+            if len(pred) != len(y_test):
+                pred = pred[-len(y_test):]
+
             plt.plot(test_index, pred, label=name, alpha=0.7)
 
         # Ensemble
+        if len(ensemble_pred) != len(y_test):
+            ensemble_pred = ensemble_pred[-len(y_test):]
+
         plt.plot(test_index, ensemble_pred, linestyle="--", linewidth=3, label="Ensemble")
 
         plt.title("Models Comparison")
@@ -203,3 +201,23 @@ class MLModel():
         plt.grid()
 
         plt.show()
+
+    def get_shift_model(ts, test_size):
+        # Shift
+        y_pred = ts.shift(1)
+
+        # Pick tests
+        y_pred_test = y_pred[-test_size:]
+        y_test = ts[-test_size:]
+
+        # Align
+        y_pred_test = y_pred_test.dropna()
+        y_test = y_test.loc[y_pred_test.index]
+
+        return MLModel(
+            name="NaiveLag1",
+            predicted_values=y_pred_test,
+            real_values=y_test,
+            test_index=y_test.index,
+            test_metrics=tsf.gerenerate_metric_results(y_test, y_pred_test)
+        )
