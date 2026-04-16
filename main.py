@@ -1,8 +1,6 @@
 import os
+import time
 from typing import List
-import numpy as np
-import matplotlib.pyplot as plt
-from pmdarima import plot_acf, plot_pacf
 
 from models.entities.EnsembleModel import EnsembleModel
 from models.entities.MLModel import MLModel
@@ -46,14 +44,15 @@ def get_pkl_files(type_data, auto=True) -> list:
 
 
 if __name__ == "__main__":
-    data = FitPrediction.get_configuration_by_id(1)
+    type_data = 1
+
+    data = FitPrediction.get_configuration_by_id(type_data)
     test_size = data['test_size']
+    pollutant = data['pollutant']
+    station_code = data['station_code']
         
-    pkl_files = get_pkl_files(type_data=1, auto=True)
-
-    pollutant = "MP10"
-    station_code = "SP71"
-
+    pkl_files = get_pkl_files(type_data=type_data, auto=True)
+    
     #Entry
     df = get_dataframe_by_station_and_pollutant(station_code, pollutant)
 
@@ -73,14 +72,14 @@ if __name__ == "__main__":
     ensemble_pred = ensemble_class.predicted_values
 
     #Real values
-    real_values = models[0].real_values
+    # real_values = models[0].real_values
 
-    y_test = real_values[-test_size:]
+    y_test = ts[-test_size:]
     
     ########
 
     #Windowed model
-    windowed_model = MLModel.get_shift_model(lag=1, ts=ts)
+    windowed_model = MLModel.get_shift_model(ts=ts, test_size=test_size)
 
     models.append(windowed_model)
 

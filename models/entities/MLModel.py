@@ -36,7 +36,7 @@ class MLModel():
             predictions.append((name, pred))
         return predictions
     
-    def load_models(pkl_paths: dict, merge_models: bool = False):
+    def load_models(pkl_paths: dict, merge_models: bool = True):
         """
             Load models by path
 
@@ -162,7 +162,7 @@ class MLModel():
         plt.show()
         
 
-    def plot_perfomance(y_test, ensemble_pred, y_label, predictions):
+    def plot_perfomance(y_test, ensemble_pred, y_label, predictions, plot_all = False):
         import matplotlib.pyplot as plt
         import numpy as np
 
@@ -182,7 +182,7 @@ class MLModel():
         for name, pred in predictions:
             pred = np.asarray(pred).reshape(-1)
 
-            if len(pred) != len(y_test):
+            if (len(pred) != len(y_test)) and not plot_all:
                 pred = pred[-len(y_test):]
 
             plt.plot(test_index, pred, label=name, alpha=0.7)

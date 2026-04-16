@@ -55,6 +55,7 @@ def get_dataframe_by_station_and_pollutant(station_code: str, pollutant: str, sa
     print(dataframe)
     #Interpolation null values with akima
     dataframe = dataframe.interpolate(method="akima")
+    dataframe = dataframe.clip(lower=0)
 
     if save_cv:
         dataframe.to_csv(f"pollution_{station_code}_{pollutant}.csv")
