@@ -17,6 +17,44 @@ def count_stations():
     # print(estacoes)
     pass
 
+def rank_missing_by_time(df, freq='D'):
+    """
+        df entry is everything
+    """
+
+    df = df.copy()
+    df['Data'] = pd.to_datetime(df['Data'])
+
+    results = []
+
+    for (codigo, poluente), group in df.groupby(['Codigo', 'Poluente']):
+        group = group.sort_values('Data')
+
+        # Uniq date
+        unique_dates = group['Data'].dt.floor(freq).nunique()
+
+        # Expected completed interval
+        full_range = pd.date_range(
+            start=group['Data'].min().floor(freq),
+            end=group['Data'].max().floor(freq),
+            freq=freq
+        )
+
+        expected = len(full_range)
+
+        missing = expected - unique_dates
+
+        results.append({
+            'Codigo': codigo,
+            'Poluente': poluente,
+            'expected': expected,
+            'actual': unique_dates,
+            'missing': missing,
+            'missing_pct': missing / expected if expected > 0 else 0
+        })
+
+    return pd.DataFrame(results).sort_values('missing').head(20)
+
 def get_dataframe_by_station_and_pollutant(station_code: str, pollutant: str, save_cv: bool = False):
 
     files = glob.glob("dataset/IEMA/SP*.csv")
@@ -62,18 +100,17 @@ def get_dataframe_by_station_and_pollutant(station_code: str, pollutant: str, sa
 
     return dataframe
 
-def print_example():
-    dataframe = get_dataframe_by_station_and_pollutant(station_code="SP71", pollutant="MP10")
-    print(dataframe)
+def print_example(station_code, pollutant):
+    dataframe = get_dataframe_by_station_and_pollutant(station_code=station_code, pollutant=pollutant)
 
     plt.figure(figsize=(12,6))
 
     plt.plot(dataframe.index, dataframe)
     print("Null values:", dataframe.isna().sum())
 
-    plt.title("MP10 - São José dos Campos - Vila Santa Maria")
+    plt.title(f"{pollutant} - {station_code}")
     plt.xlabel("Data")
-    plt.ylabel("MP10 (µg/m³)")
+    plt.ylabel(f"{pollutant} (µg/m³)")
 
     plt.show()
 
@@ -107,7 +144,9 @@ def adf_test(series,title=''):
 if __name__ == "__main__":
     from statsmodels.tsa.seasonal import seasonal_decompose  
     pollutant = "MP10"
-    station_code = "SP71"
+    station_code = "SP20"
+
+    print_example(station_code, pollutant)
 
     #Entry
     df = get_dataframe_by_station_and_pollutant(station_code, pollutant)
@@ -117,10 +156,11 @@ if __name__ == "__main__":
     result = seasonal_decompose(ts, model='add')
     result.plot()
 
-    # from statsmodels.stats.diagnostic import acorr_ljungbox
+    from statsmodels.stats.diagnostic import acorr_ljungbox
 
-    # resultado = acorr_ljungbox(ts, lags=[10], return_df=True)
-    # print(resultado)
+    # Se p-valor > 0.05, resíduos são ruído branco (série difícil de prever)
+    result = acorr_ljungbox(ts, lags=[10, 20], return_df=True)
+    print(result)
 
     adf_test(ts, "Pollution")
 

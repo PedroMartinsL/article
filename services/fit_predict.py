@@ -104,7 +104,6 @@ class FitPrediction():
         normalize: bool,
         horizon: int = 1,
         recursive: bool = False,
-        use_exo_future: bool = True
     ) -> Dict:
         """
         Trains, predicts, and evaluates a single time series model using windowing.
@@ -127,7 +126,6 @@ class FitPrediction():
 
         time_series : pd.DataFrame
             Time series data. Must contain a column named 'actual'.
-            Can also include exogenous variables (extra columns).
 
         model : Any
             Machine learning model (e.g., sklearn estimator).
@@ -177,57 +175,30 @@ class FitPrediction():
         """
         train_size = len(time_series) - test_size
 
-        is_exogen = False
 
         if time_series.shape[1] > 1:
-            is_exogen = True
-            exogens = time_series.drop(
-                columns=['actual', 'Data'], errors='ignore')
+            raise('Exogen')
+        
         horizon_to_use = horizon
+
         if recursive:
-            if is_exogen:
-                raise NotImplementedError(
-                    'RECUSIVE IS NOT SUPPORTED WITH EXOGENS')
             horizon = 1
 
         # normalize
         if normalize:
-            min_max_scaler = preprocessing.StandardScaler()
+            min_max_scaler = preprocessing.MinMaxScaler()
             min_max_scaler.fit(
                 time_series['actual'].values[0:train_size].reshape(-1, 1))
             ts_normalized = min_max_scaler.transform(
                 time_series['actual'].values.reshape(-1, 1))
             ts_normalized = pd.DataFrame({'actual': ts_normalized.flatten()})
 
-            if is_exogen:
-                min_max_scaler_x = preprocessing.StandardScaler()
-                min_max_scaler_x.fit(exogens.values[0:train_size])
-                exogens_norm = min_max_scaler_x.transform(exogens)
-                exogens_norm = pd.DataFrame(
-                    exogens_norm, columns=exogens.columns)
-
         else:
             ts_normalized = time_series
-            if is_exogen:
-                exogens_norm = exogens
         # ________________
 
         ts_windowed = FitPrediction.get_windowing(
             ts_normalized, time_window, horizon)
-        if is_exogen:
-            exgen_windowed = pd.DataFrame()
-            for c in exogens.columns:
-                if use_exo_future:
-                    df_exogen = FitPrediction.get_windowing(
-                        exogens_norm[c], time_window, horizon, f'_{c}')[['actual']]
-                    df_exogen.rename(columns={'actual': c}, inplace=True)
-                else:
-                    df_exogen = FitPrediction.get_windowing(
-                        exogens_norm[c], time_window, horizon, f'_{c}').drop(columns=['actual'])
-
-                exgen_windowed = pd.concat([exgen_windowed, df_exogen], axis=1)
-
-            ts_windowed = pd.concat([exgen_windowed, ts_windowed], axis=1)
 
         reg = tsf.fit_sklearn_model(ts_windowed, model, test_size, val_size)
 
@@ -239,10 +210,9 @@ class FitPrediction():
                 ts_windowed_test, reg, horizon_to_use)
         else:
             pred = tsf.predict_sklearn_model(ts_windowed, reg)
-
-        if (normalize):
-            pred = min_max_scaler.inverse_transform(
-                pred.reshape(-1, 1)).flatten()
+            
+        if(normalize):
+            pred = min_max_scaler.inverse_transform(pred.reshape(-1, 1)).flatten()
 
         ts_atu = time_series['actual']
         ts_atu = ts_atu[-len(pred):]
@@ -253,13 +223,13 @@ class FitPrediction():
             df_prevs = None
 
         results = tsf.make_metrics_avaliation(
-            ts_atu, 
-            pred,                          
-            test_size, 
+            ts_atu,
+            pred,
+            test_size,
             val_size,
-            return_option, 
+            return_option,
             model.get_params(deep=True),
-            title + '(tw' + str(time_window) + ')', 
+            title + '(tw' + str(time_window) + ')',
             df_prevs
         )
         return results
@@ -272,7 +242,6 @@ class FitPrediction():
         model: Any,
         horizon: int,
         recursive: bool,
-        use_exegen_future: bool,
         model_execs: int
     ) -> Dict:
         """
@@ -286,8 +255,7 @@ class FitPrediction():
         Parameters
         ----------
         real : pd.DataFrame
-            Time series dataset. Must contain a column named 'actual' and optionally
-            exogenous variables.
+            Time series dataset. Must contain a column named 'actual' 
 
         test_size : int
             Number of samples reserved for testing.
@@ -313,8 +281,6 @@ class FitPrediction():
         recursive : bool
             If True, uses recursive forecasting strategy.
 
-        use_exegen_future : bool
-            If True, allows the use of future values of exogenous variables.
 
         model_execs : int
             Number of times each parameter configuration is executed.
@@ -367,7 +333,6 @@ class FitPrediction():
                     True, 
                     horizon, 
                     recursive, 
-                    use_exegen_future
                 )[metric]
                 result_atual.append(retults)
 
@@ -454,7 +419,6 @@ class FitPrediction():
             data = json.load(f)
 
         recursive = False
-        use_exegen_future = False
         # use_log = False
 
         for i in data:
@@ -471,7 +435,7 @@ class FitPrediction():
                 pollutant = i['pollutant']
                 station_code = i['station_code']
 
-                real = get_dataframe_by_station_and_pollutant(station_code=station_code, pollutant=pollutant, save_cv=False)
+                real = get_dataframe_by_station_and_pollutant(station_code=station_code, pollutant=pollutant)
 
                 gs_result = FitPrediction.do_grid_search(
                     real=real, 
@@ -481,7 +445,6 @@ class FitPrediction():
                     model=model,
                     horizon=horizon,
                     recursive=recursive,
-                    use_exegen_future=use_exegen_future,
                     model_execs=model_execs
                 )
 
@@ -501,7 +464,6 @@ class FitPrediction():
                         True, 
                         horizon,
                         recursive, 
-                        use_exegen_future
                     )
                     time.sleep(1)
 

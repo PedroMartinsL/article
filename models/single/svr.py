@@ -12,7 +12,7 @@ parameters = {
     'kernel':["rbf"],
     'epsilon': [1.0, 0.5, 0.1, 0.01, 0.001], 
     'tol':[0.001],
-    'time_window': [12]
+    'time_window': [1, 7, 12]
     }
 
 model = SVR(max_iter=100000)

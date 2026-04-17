@@ -1,14 +1,12 @@
 [
 {
-    "name": "salvador_1",
+    "name": "vila_parisi",
     "type_data": 1,
-    "path_data":"./data/INMET_NE_BA_A401_SALVADOR_01-01-2020_A_31-12-2020.csv",
-    "arima_path": "./arima_models/1-arima.txt",
-    "test_size": 400,
-    "val_size": 400,
+    "test_size": 600,
+    "val_size": 600,
     "activate":1,
     "horizon": 1,
-    "station_code": "SP71",
+    "station_code": "SP20",
     "pollutant": "MP10"
 }
 ]

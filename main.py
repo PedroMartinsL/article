@@ -2,6 +2,8 @@ import os
 import time
 from typing import List
 
+import numpy as np
+
 from models.entities.EnsembleModel import EnsembleModel
 from models.entities.MLModel import MLModel
 
@@ -60,10 +62,9 @@ if __name__ == "__main__":
     
     models: List[MLModel] = MLModel.load_models(pkl_files)
 
-    predictions: list = MLModel.get_predictions(models=models)
+    predictions: list = MLModel.get_test_predictions(models=models, test_size=test_size)
 
     #Ensemble Model
-
     ensemble_class = EnsembleModel(name="Ensemble", predictions=predictions, ts=df)
 
     models.append(ensemble_class)
@@ -82,8 +83,6 @@ if __name__ == "__main__":
     windowed_model = MLModel.get_shift_model(ts=ts, test_size=test_size)
 
     models.append(windowed_model)
-
-    #Plotting data
 
     MLModel.plot_perfomance(y_test, ensemble_pred, pollutant, predictions)
 

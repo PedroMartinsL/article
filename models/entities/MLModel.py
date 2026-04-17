@@ -28,11 +28,11 @@ class MLModel():
         self.pool_prevs = model_data.get('pool_prevs', None)
         self.params = model_data.get('params', None)
 
-    def get_predictions(models: list):
+    def get_test_predictions(models: list, test_size: int):
         predictions = []
         for model_cls in models:
             name = model_cls.name
-            pred = model_cls.predicted_values
+            pred = model_cls.predicted_values[-test_size:]
             predictions.append((name, pred))
         return predictions
     
@@ -163,9 +163,6 @@ class MLModel():
         
 
     def plot_perfomance(y_test, ensemble_pred, y_label, predictions, plot_all = False):
-        import matplotlib.pyplot as plt
-        import numpy as np
-
         # Base index
         test_index = y_test.index
 
@@ -180,6 +177,11 @@ class MLModel():
 
         # Predictions
         for name, pred in predictions:
+            print(name)
+            print("normal:", np.corrcoef(y_test, pred)[0,1])
+            print("shift -1:", np.corrcoef(y_test[:-1], pred[1:])[0,1])
+            print("shift +1:", np.corrcoef(y_test[1:], pred[:-1])[0,1])
+
             pred = np.asarray(pred).reshape(-1)
 
             if (len(pred) != len(y_test)) and not plot_all:
@@ -203,6 +205,7 @@ class MLModel():
         plt.show()
 
     def get_shift_model(ts, test_size):
+        ts = ts.copy()
         # Shift
         y_pred = ts.shift(1)
 
