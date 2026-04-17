@@ -91,7 +91,14 @@ class FitPrediction():
 
         ts_windowed = ts_windowed[columns_lag+['actual']]
         return ts_windowed
-
+    
+    def get_scaler(scaler: str = "min_max_scaler"):
+        if scaler == "standard_scaler":
+            return preprocessing.StandardScaler()
+        elif scaler == "min_max_scaler":
+            return  preprocessing.MinMaxScaler()
+        else:
+            raise ValueError("Any Scaler with this name")
 
     def single_model(
         title: str,
@@ -101,84 +108,17 @@ class FitPrediction():
         test_size: int,
         val_size: int,
         return_option: Any,
-        normalize: bool,
+        normalize: str = None,
         horizon: int = 1,
         recursive: bool = False,
+        differencing: bool = False
     ) -> Dict:
-        """
-        Trains, predicts, and evaluates a single time series model using windowing.
-
-        This function performs a complete pipeline:
-        - Optional normalization (MinMaxScaler)
-        - Conversion to supervised format (windowing / lag features)
-        - Train/validation/test split
-        - Model training
-        - Prediction (standard or recursive)
-        - Metric evaluation
-
-        Parameters
-        ----------
-        title : str
-            Identifier/name of the model (used for logging and results).
-
-        time_window : int
-            Number of lagged observations used as input features.
-
-        time_series : pd.DataFrame
-            Time series data. Must contain a column named 'actual'.
-
-        model : Any
-            Machine learning model (e.g., sklearn estimator).
-
-        test_size : int
-            Number of samples reserved for testing.
-
-        val_size : int
-            Number of samples reserved for validation.
-
-        return_option : Any
-            Defines which dataset (train/val/test) metrics should be returned.
-
-        normalize : bool
-            If True, applies MinMax scaling to the data (fit only on training set).
-
-        horizon : int, optional (default = 1)
-            Forecast horizon:
-            - 1 → one-step ahead prediction
-            - >1 → multi-step forecasting
-
-        recursive : bool, optional (default = False)
-            If True, performs recursive forecasting (step-by-step prediction).
-            Not supported when using exogenous variables.
-
-        use_exo_future : bool, optional (default = True)
-            If True, uses future values of exogenous variables.
-            Otherwise, uses only past values.
-
-        Returns
-        -------
-        Dict
-            A dictionary containing:
-            - Evaluation metrics (RMSE, MAE, MAPE, etc.)
-            - Real values (ground truth)
-            - Predicted values
-            - Model parameters
-            - Optional additional outputs
-
-        Notes
-        -----
-        - Avoids data leakage by fitting scalers only on training data
-        - Converts time series into supervised format using lag features
-        - Supports exogenous variables (additional predictors)
-        - Supports recursive forecasting (except with exogenous data)
-        - Designed to work with sklearn-like models
-        """
+        
         train_size = len(time_series) - test_size
-
 
         if time_series.shape[1] > 1:
             raise('Exogen')
-        
+
         horizon_to_use = horizon
 
         if recursive:
@@ -186,34 +126,55 @@ class FitPrediction():
 
         # normalize
         if normalize:
-            min_max_scaler = preprocessing.MinMaxScaler()
-            min_max_scaler.fit(
+            scaler = FitPrediction.get_scaler(normalize)
+            scaler.fit(
                 time_series['actual'].values[0:train_size].reshape(-1, 1))
-            ts_normalized = min_max_scaler.transform(
+            ts_normalized = scaler.transform(
                 time_series['actual'].values.reshape(-1, 1))
             ts_normalized = pd.DataFrame({'actual': ts_normalized.flatten()})
-
         else:
-            ts_normalized = time_series
-        # ________________
+            ts_normalized = time_series.copy()
 
+        ts_to_window = ts_normalized
+        if differencing:
+
+            # Target
+            ts_normalized["target"] = ts_normalized["actual"].diff()
+
+            ts_normalized = ts_normalized.dropna()
+
+            ts_to_window = ts_normalized[["target"]]
+
+        # windowing with delta Y
         ts_windowed = FitPrediction.get_windowing(
-            ts_normalized, time_window, horizon)
+            ts_to_window,
+            time_window,
+            horizon
+        )
 
         reg = tsf.fit_sklearn_model(ts_windowed, model, test_size, val_size)
 
         if recursive and (horizon_to_use > 1):
             ts_windowed_test = FitPrediction.get_windowing(
-                ts_normalized, time_window, horizon_to_use)
+                ts_to_window, time_window, horizon_to_use)
             ts_windowed_test = ts_windowed_test.iloc[-(test_size+val_size+10):]
             pred = tsf.predict_sklearn_model_recursive(
                 ts_windowed_test, reg, horizon_to_use)
         else:
             pred = tsf.predict_sklearn_model(ts_windowed, reg)
-            
-        if(normalize):
-            pred = min_max_scaler.inverse_transform(pred.reshape(-1, 1)).flatten()
 
+        if differencing:
+            # reconstruction Delta Y to Y
+            actual_series = ts_normalized["actual"]
+
+            base = actual_series.iloc[-len(pred):]
+            # Retrieving Y
+            pred = base.values + pred
+
+        if normalize:
+            pred = scaler.inverse_transform(pred.reshape(-1, 1)).flatten()
+
+        # ground ts - retrieving Y values
         ts_atu = time_series['actual']
         ts_atu = ts_atu[-len(pred):]
 
@@ -242,68 +203,10 @@ class FitPrediction():
         model: Any,
         horizon: int,
         recursive: bool,
-        model_execs: int
+        model_execs: int,
+        normalize: str = None,
+        differencing: bool = False
     ) -> Dict:
-        """
-        Performs a manual grid search over hyperparameters for a time series model.
-
-        This function evaluates multiple combinations of hyperparameters using
-        a predefined parameter grid. For each combination, the model is trained
-        multiple times and the average performance (RMSE) is used to select
-        the best configuration.
-
-        Parameters
-        ----------
-        real : pd.DataFrame
-            Time series dataset. Must contain a column named 'actual' 
-
-        test_size : int
-            Number of samples reserved for testing.
-
-        val_size : int
-            Number of samples reserved for validation.
-
-        parameters : Dict
-            Dictionary defining the hyperparameter search space.
-            Example:
-                {
-                    'max_depth': [5, 10],
-                    'n_estimators': [100, 200],
-                    'time_window': [12, 24]
-                }
-
-        model : Any
-            Base machine learning model (e.g., sklearn estimator).
-
-        horizon : int
-            Forecast horizon (number of steps ahead to predict).
-
-        recursive : bool
-            If True, uses recursive forecasting strategy.
-
-
-        model_execs : int
-            Number of times each parameter configuration is executed.
-            The final score is the average across executions.
-
-        Returns
-        -------
-        Dict
-            A dictionary containing:
-            - 'best_result': dict with:
-                - 'time_window': best lag size used
-                - 'RMSE': best (lowest) average RMSE achieved
-            - 'model': the best trained model (with optimal hyperparameters)
-
-        Notes
-        -----
-        - Uses RMSE as the optimization metric (lower is better)
-        - Performs a manual grid search (not sklearn GridSearchCV)
-        - Repeats each experiment multiple times for robustness
-        - Uses validation set (not test set) for model selection
-        - `time_window` is treated separately from model hyperparameters
-        - Does NOT perform true cross-validation (fixed split is used)
-        """
 
         best_model = None
         metric = 'RMSE'
@@ -330,9 +233,10 @@ class FitPrediction():
                     test_size, 
                     val_size,
                     result_type, 
-                    True, 
+                    normalize, 
                     horizon, 
-                    recursive, 
+                    recursive,
+                    differencing 
                 )[metric]
                 result_atual.append(retults)
 
@@ -357,63 +261,10 @@ class FitPrediction():
         model_execs: int,
         data_title: str,
         parameters: Dict,
-        model: Any
+        model: Any,
+        normalize: str = None,
+        differencing: bool = False
     ) -> None:
-        """
-        Executes the full training pipeline for a sklearn-based model,
-        including hyperparameter tuning via grid search and result persistence.
-
-        This function acts as a high-level orchestrator that:
-        - Iterates over hyperparameter combinations
-        - Calls the grid search procedure
-        - Trains models multiple times for robustness
-        - Selects the best configuration
-        - Saves results (e.g., metrics, predictions, model artifacts)
-
-        Parameters
-        ----------
-        model_execs : int
-            Number of times each model configuration is executed.
-            Used to average performance and reduce randomness effects.
-
-        data_title : str
-            Identifier for the experiment (e.g., 'svr', 'mlp', 'rf').
-            Typically used for naming output files and logs.
-
-        parameters : Dict
-            Dictionary defining the hyperparameter search space.
-            Must include 'time_window' for time series lag configuration.
-
-            Example:
-                {
-                    'n_estimators': [100, 200],
-                    'max_depth': [5, 10],
-                    'time_window': [12]
-                }
-
-        model : Any
-            Machine learning model following sklearn interface
-            (must implement fit() and predict()).
-
-        Returns
-        -------
-        None
-            This function does not return values directly.
-            Instead, it saves results to disk (e.g., .pkl files),
-            including:
-            - Best model parameters
-            - Evaluation metrics
-            - Predictions
-            - Real values
-
-        Notes
-        -----
-        - Internally uses `do_grid_search` to find the best hyperparameters
-        - Uses `single_model` to train and evaluate each configuration
-        - Designed for time series forecasting with lag features
-        - Supports multiple executions per configuration for stability
-        - Typically used for experiments and batch model training
-        """
 
         with open(f'{FitPrediction.CONFIG_PATH}models_config.json') as f:
             data = json.load(f)
@@ -445,7 +296,9 @@ class FitPrediction():
                     model=model,
                     horizon=horizon,
                     recursive=recursive,
-                    model_execs=model_execs
+                    model_execs=model_execs,
+                    normalize=normalize,
+                    differencing=differencing
                 )
 
                 save_path_actual = FitPrediction.get_save_path_actual(type_data, data_title)
@@ -461,9 +314,10 @@ class FitPrediction():
                         test_size, 
                         val_size, 
                         tsf.result_options.save_result, 
-                        True, 
+                        normalize, 
                         horizon,
                         recursive, 
+                        differencing
                     )
                     time.sleep(1)
 
@@ -491,160 +345,144 @@ class ArimaFitPrediction(FitPrediction):
         data_title: str,
         auto: bool = True,
         parameters: Optional[Dict] = None,
-        normalize: bool = False,
+        normalize: str = None
     ) -> None:
-        """
-        Training pipeline for ARIMA / AutoARIMA with optional normalization.
-
-        Parameters
-        ----------
-        model_execs : int
-            Number of executions per experiment.
-
-        data_title : str
-            Name for saving results (e.g., 'arima').
-
-        parameters : dict, optional
-            Parameters for auto_arima (optional).
-
-        normalize : bool, default=False
-            If True, applies MinMax scaling to the series (fit only on train).
-        """
 
         with open(f'{FitPrediction.CONFIG_PATH}models_config.json') as f:
             data = json.load(f)
 
-        for i in data:
+        for cfg in data:
 
-            if i['activate'] == 1:
+            if cfg['activate'] != 1:
+                continue
 
-                # Config
-                test_size = i['test_size']
-                # val_size = i['val_size']
-                val_size = 0
-                type_data = i['type_data']
-                horizon = i['horizon']
+            test_size = cfg['test_size']
+            val_size = 0
+            horizon = cfg['horizon']
+            type_data = cfg['type_data']
 
-                pollutant = i['pollutant']
-                station_code = i['station_code']
+            pollutant = cfg['pollutant']
+            station_code = cfg['station_code']
 
-                # Load data
-                real = get_dataframe_by_station_and_pollutant(
-                    station_code=station_code,
-                    pollutant=pollutant
+            real = get_dataframe_by_station_and_pollutant(
+                station_code=station_code,
+                pollutant=pollutant
+            )
+
+            ts = real['actual']
+
+            train_size = len(ts) - test_size
+
+            save_path = FitPrediction.get_save_path_actual(type_data, data_title)
+            os.makedirs(save_path, exist_ok=True)
+
+            title_temp = FitPrediction.get_title_temp(type_data, data_title)
+
+            for _ in range(model_execs):
+
+                if normalize:
+                    scaler = FitPrediction.get_scaler(normalize)
+                    ts_used = scaler.fit_transform(ts.values.reshape(-1, 1)).flatten()
+                else:
+                    ts_used = ts.values
+
+                preds = np.full(len(ts), np.nan)
+
+                history = list(ts_used[:train_size])
+
+                model = auto_arima(history, **(parameters or {}))
+
+                #Walk foward
+
+                for i in range(test_size):
+
+                    yhat = model.predict(n_periods=horizon)[0]
+
+                    idx = train_size + i
+                    preds[idx] = yhat
+
+                    real_value = ts_used[idx]
+                    model.update(real_value)
+
+                if normalize:
+                    preds = scaler.inverse_transform(preds.reshape(-1, 1)).flatten()
+
+                tsf.make_metrics_avaliation(
+                    y_true=ts,
+                    y_pred=preds,
+                    test_size=test_size,
+                    val_size=val_size,
+                    return_type=tsf.result_options.save_result,
+                    model_params={'order': model.order},
+                    title=save_path + title_temp,
+                    prevs_df=None
                 )
 
-                ts = real['actual']
-
-                # Split
-                train = ts[:-test_size]
-                # test = ts[-test_size:]
-
-                save_path_actual = FitPrediction.get_save_path_actual(type_data, data_title)
-                os.makedirs(save_path_actual, exist_ok=True)
-
-                title_temp = FitPrediction.get_title_temp(type_data, data_title)
-
-                for _ in range(model_execs):
-
-                    if normalize:
-                        scaler = preprocessing.MinMaxScaler()
-                        train_used = scaler.fit_transform(train.values.reshape(-1, 1)).flatten()
-                    else:
-                        train_used = train.values
-
-                    model = ArimaFitPrediction.build_arima(train_used, parameters, auto)
-
-                    train_size = len(ts) - (val_size + test_size)
-
-                    y_pred_full = ArimaFitPrediction.walk_forward_arima(
-                        ts=ts,
-                        train_size=train_size,
-                        val_size=val_size,
-                        test_size=test_size,
-                        normalize=normalize,
-                        scaler=scaler if normalize else None,
-                        parameters=parameters,
-                        horizon=horizon
-                    )
-
-                    # EVALUATION
-                    tsf.make_metrics_avaliation(
-                        y_true=ts,
-                        y_pred=y_pred_full,
-                        test_size=test_size,
-                        val_size=val_size,
-                        return_type=tsf.result_options.save_result,
-                        model_params={'order': model.order},
-                        title=save_path_actual+title_temp,
-                        prevs_df=None
-                    )
-
-                    time.sleep(1)
+                time.sleep(1)
 
 
-    def walk_forward_arima(
-        ts,
-        train_size,
-        val_size,
-        test_size,
-        normalize=False,
-        scaler=None,
-        parameters=None,
-        horizon=1
-    ):
-        # -----------------------------
-        # Preparação dos dados
-        # -----------------------------
-        if normalize:
-            full_series = scaler.transform(ts.values.reshape(-1, 1)).flatten()
-            train_used = full_series[:train_size]
-        else:
-            full_series = ts.values
-            train_used = full_series[:train_size]
+    # def walk_forward_arima(
+    #     ts,
+    #     train_size,
+    #     val_size,
+    #     test_size,
+    #     normalize=False,
+    #     scaler=None,
+    #     parameters=None,
+    #     horizon=1
+    # ):
+    #     # -----------------------------
+    #     # Preparação dos dados
+    #     # -----------------------------
+    #     if normalize:
+    #         full_series = scaler.transform(ts.values.reshape(-1, 1)).flatten()
+    #         train_used = full_series[:train_size]
+    #     else:
+    #         full_series = ts.values
+    #         train_used = full_series[:train_size]
 
-        history = list(train_used)
+    #     history = list(train_used)
 
-        preds = []
+    #     preds = []
 
-        total_steps = val_size + test_size
-        start_index = train_size
+    #     total_steps = val_size + test_size
+    #     start_index = train_size
 
-        model = auto_arima(
-            history,
-            **(parameters or {})
-        )
+    #     model = auto_arima(
+    #         history,
+    #         **(parameters or {})
+    #     )
 
-        # -----------------------------
-        # Walk-forward
-        # -----------------------------
-        for i in range(total_steps):
+    #     # -----------------------------
+    #     # Walk-forward
+    #     # -----------------------------
+    #     for i in range(total_steps):
 
-            # pred 1 step
-            yhat = model.predict(n_periods=horizon)[0]
-            preds.append(yhat)
-            real_value = full_series[start_index + i]
-            model.update(real_value)
+    #         # pred 1 step
+    #         yhat = model.predict(n_periods=horizon)[0]
+    #         preds.append(yhat)
+    #         real_value = full_series[start_index + i]
+    #         model.update(real_value)
 
-        if normalize:
-            preds = scaler.inverse_transform(
-                np.array(preds).reshape(-1, 1)
-            ).flatten()
+    #     if normalize:
+    #         preds = scaler.inverse_transform(
+    #             np.array(preds).reshape(-1, 1)
+    #         ).flatten()
 
-        y_pred_full = np.full(len(ts), np.nan)
-        y_pred_full[-(val_size + test_size):] = preds
+    #     y_pred_full = np.full(len(ts), np.nan)
+    #     y_pred_full[-(val_size + test_size):] = preds
 
-        return y_pred_full
+    #     return y_pred_full
     
 
-    def build_arima(train_used, parameters, auto):
-        try:
-            if auto:
-                return auto_arima(train_used, **(parameters or {}))
-            else:
-                model = ARIMA(**(parameters or {}))
-                model.fit(train_used)
-                return model
+    # def build_arima(train_used, parameters, auto):
+    #     try:
+    #         if auto:
+    #             return auto_arima(train_used, **(parameters or {}))
+    #         else:
+    #             model = ARIMA(**(parameters or {}))
+    #             model.fit(train_used)
+    #             return model
             
-        except Exception as e:
-            print("Error building arima model: ", e)
+    #     except Exception as e:
+    #         print("Error building arima model: ", e)

@@ -8,9 +8,9 @@ parameters = {
     'hidden_layer_sizes': [20, 50, 100], 
     'max_iter': [10000],
     'tol': [0.001, 0.0001, 0.00001],
-    'time_window': [1, 6, 12]
+    'time_window': [1, 7, 14]
 }
 
 
 model = MLPRegressor(activation='logistic', solver='lbfgs') 
-FitPrediction.train_sklearn(model_execs, data_title, parameters, model)
+FitPrediction.train_sklearn(model_execs, data_title, parameters, model, "min_max_scaler", True)

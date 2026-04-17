@@ -16,5 +16,5 @@ parameters = {
     }
 
 model = SVR(max_iter=100000)
-FitPrediction.train_sklearn(model_execs, data_title, parameters, model)
+FitPrediction.train_sklearn(model_execs, data_title, parameters, model, "standard_scaler", True)
 
