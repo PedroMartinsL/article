@@ -153,6 +153,15 @@ if __name__ == "__main__":
 
     ts = df['actual']
 
+    import numpy as np
+    from statsmodels.tsa.stattools import acf
+
+    acf_vals = acf(ts, nlags=100)
+
+    # pega os maiores picos (ignorando lag 0)
+    lags = np.argsort(acf_vals[1:])[-5:] + 1
+    print("lags",lags)
+
     result = seasonal_decompose(ts, model='add')
     result.plot()
 

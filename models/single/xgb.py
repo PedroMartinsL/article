@@ -10,7 +10,7 @@ parameters = {
     'learning_rate': [0.01, 0.1, 0.2],
     'subsample': [0.6, 0.8, 1],
     'colsample_bytree': [0.6, 0.8, 1],
-    'time_window': [1, 7, 14]
+    'time_window': [5, 10, 20]
 }
 
 model = XGBRegressor(

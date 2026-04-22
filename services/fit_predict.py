@@ -345,7 +345,8 @@ class ArimaFitPrediction(FitPrediction):
         data_title: str,
         auto: bool = True,
         parameters: Optional[Dict] = None,
-        normalize: str = None
+        normalize: str = None,
+        shift: int = 0,
     ) -> None:
 
         with open(f'{FitPrediction.CONFIG_PATH}models_config.json') as f:
@@ -389,20 +390,23 @@ class ArimaFitPrediction(FitPrediction):
                 preds = np.full(len(ts), np.nan)
 
                 history = list(ts_used[:train_size])
-
-                model = auto_arima(history, **(parameters or {}))
-
-                #Walk foward
+                model = ArimaFitPrediction.build_arima(history, parameters, auto)
 
                 for i in range(test_size):
-
                     yhat = model.predict(n_periods=horizon)[0]
 
-                    idx = train_size + i
-                    preds[idx] = yhat
+                    idx = train_size + i - shift
 
-                    real_value = ts_used[idx]
-                    model.update(real_value)
+                    if idx >= 0:
+                        preds[idx] = yhat
+
+                    real_value = ts_used[train_size + i]
+                    model.update([real_value])
+
+                if shift:
+                    for i in range(shift):
+                        yhat = model.predict(n_periods=1)[0]
+                        preds[-1] = yhat
 
                 if normalize:
                     preds = scaler.inverse_transform(preds.reshape(-1, 1)).flatten()
@@ -475,14 +479,14 @@ class ArimaFitPrediction(FitPrediction):
     #     return y_pred_full
     
 
-    # def build_arima(train_used, parameters, auto):
-    #     try:
-    #         if auto:
-    #             return auto_arima(train_used, **(parameters or {}))
-    #         else:
-    #             model = ARIMA(**(parameters or {}))
-    #             model.fit(train_used)
-    #             return model
+    def build_arima(train_used, parameters, auto):
+        try:
+            if auto:
+                return auto_arima(train_used, **(parameters or {}))
+            else:
+                model = ARIMA(**(parameters or {}))
+                model.fit(train_used)
+                return model
             
-    #     except Exception as e:
-    #         print("Error building arima model: ", e)
+        except Exception as e:
+            print("Error building arima model: ", e)
