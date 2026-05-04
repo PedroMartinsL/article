@@ -13,5 +13,5 @@ FitPrediction.execute(
         'max_steps': [300],
         'scaler_type': ['standard'],
     },
-    shift=1
+    differencing=True
 )
