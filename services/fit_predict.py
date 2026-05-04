@@ -1,4 +1,3 @@
-import pickle
 import time
 import json
 import os
@@ -21,7 +20,59 @@ class FitPrediction():
 
     CONFIG_PATH = './'
     SAVE_PATH = './models/results/'
-    
+
+    def _detect_model_type(model):
+
+        model_str = str(type(model)).lower()
+
+        # 🔹 se for classe (NHITS, KAN...)
+        if isinstance(model, type):
+            if "neuralforecast" in str(model).lower():
+                return "neuralforecast"
+
+        # 🔹 instancia neuralforecast (caso raro)
+        if "neuralforecast" in model_str:
+            return "neuralforecast"
+
+        # 🔹 sklearn
+        if hasattr(model, "fit") and hasattr(model, "predict"):
+            return "sklearn"
+
+        # 🔹 arima
+        if "arima" in model_str:
+            return "arima"
+
+        return "unknown"
+
+    def execute(**allParams):
+        """
+        Executor genérico que detecta o tipo do modelo e delega os parâmetros.
+        """
+
+        if 'model' not in allParams:
+            raise ValueError("Você precisa passar 'model' nos parâmetros")
+
+        model = allParams['model']
+
+        model_type = FitPrediction._detect_model_type(model)
+
+        # sklearn
+        if model_type == "sklearn":
+            return SklearnFitPrediction.train_sklearn(**allParams)
+
+        # arima
+        elif model_type == "arima":
+            return ArimaFitPrediction.train_arima(**allParams)
+
+        # neuralforecast
+        elif model_type == "neuralforecast":
+            # aqui ajusta automaticamente
+            return NeuralForecastFitPrediction.train_neuralforecast(**allParams)
+
+        else:
+            raise ValueError(f"Tipo de modelo não suportado: {type(model)}")
+        
+        
     def get_windowing(
         ts_normalized: Union[pd.Series, pd.DataFrame],
         time_window: int,
@@ -99,6 +150,25 @@ class FitPrediction():
             return  preprocessing.MinMaxScaler()
         else:
             raise ValueError("Any Scaler with this name")
+        
+    def get_save_path_actual(type_data, data_title:str):
+        return FitPrediction.SAVE_PATH+str(type_data)+'-'+data_title+'/'
+    
+    def get_title_temp(type_data, data_title):
+        return str(type_data) + '-' + data_title
+    
+    def get_configuration_by_id(id: int):
+        with open(f'{FitPrediction.CONFIG_PATH}models_config.json') as f:
+            data = json.load(f)
+
+        for item in data:
+            if item.get("type_data") == id:
+                return item
+
+        return None
+    
+        
+class SklearnFitPrediction:
 
     def single_model(
         title: str,
@@ -225,7 +295,7 @@ class FitPrediction():
 
             result_atual = []
             for t in range(0, model_execs):
-                retults = FitPrediction.single_model(
+                retults = SklearnFitPrediction.single_model(
                     'mlp', 
                     params['time_window'], 
                     real,
@@ -288,7 +358,7 @@ class FitPrediction():
 
                 real = get_dataframe_by_station_and_pollutant(station_code=station_code, pollutant=pollutant)
 
-                gs_result = FitPrediction.do_grid_search(
+                gs_result = SklearnFitPrediction.do_grid_search(
                     real=real, 
                     test_size=test_size,
                     val_size=val_size,
@@ -306,7 +376,7 @@ class FitPrediction():
 
                 title_temp = FitPrediction.get_title_temp(type_data, data_title)
                 for _ in range(0, model_execs):
-                    FitPrediction.single_model(
+                    SklearnFitPrediction.single_model(
                         save_path_actual+title_temp, 
                         gs_result['best_result']['time_window'],
                         real,
@@ -321,22 +391,233 @@ class FitPrediction():
                     )
                     time.sleep(1)
 
-    def get_save_path_actual(type_data, data_title:str):
-        return FitPrediction.SAVE_PATH+str(type_data)+'-'+data_title+'/'
+
+class NeuralForecastFitPrediction:
     
-    def get_title_temp(type_data, data_title):
-        return str(type_data) + '-' + data_title
-    
-    def get_configuration_by_id(id: int):
+    def run_single_exec(
+            df: pd.DataFrame,
+            model,
+            horizon: int,
+            test_size: int,
+            normalize,
+            differencing: bool,
+            original_ts_aligned,
+            ts_original,
+            param_set: dict,
+        ):
+        from neuralforecast import NeuralForecast
+        from neuralforecast.losses.pytorch import DistributionLoss
+
+        df_used = df.copy()
+
+        if normalize:
+            scaler = FitPrediction.get_scaler(normalize)
+            df_used['y'] = scaler.fit_transform(df_used[['y']]).flatten()
+
+        try:
+            model_instance = model(
+                h=horizon,
+                loss=DistributionLoss(distribution='StudentT'),
+                **param_set
+            )
+        except TypeError:
+            model_instance = model(
+                h=horizon,
+                **param_set
+            )
+
+        fcst = NeuralForecast(models=[model_instance], freq='D')
+
+        cv_df = fcst.cross_validation(
+            df=df_used,
+            n_windows=max(1, test_size // horizon),
+            step_size=horizon
+        )
+
+        model_name = model_instance.__class__.__name__
+
+        if normalize:
+            full_y_diff = scaler.inverse_transform(df_used[['y']]).flatten()
+        else:
+            full_y_diff = df_used['y'].values
+
+        full_pred_diff = np.full(len(full_y_diff), np.nan)
+
+        full_ds = df_used['ds'].values
+        cv_last = cv_df.groupby('ds')[f'{model_name}-median'].last().reset_index()
+
+        if normalize:
+            cv_last[f'{model_name}-median'] = scaler.inverse_transform(
+                cv_last[[f'{model_name}-median']]
+            ).flatten()
+
+        for _, row in cv_last.iterrows():
+            idx = np.where(full_ds == row['ds'])[0]
+            if len(idx) > 0:
+                full_pred_diff[idx[0]] = row[f'{model_name}-median']
+
+        if differencing:
+            full_y = original_ts_aligned
+            full_pred = np.full(len(full_pred_diff), np.nan)
+            for i in range(len(full_pred_diff)):
+                if not np.isnan(full_pred_diff[i]):
+                    prev_value = ts_original.iloc[i] 
+                    full_pred[i] = full_pred_diff[i] + prev_value
+        else:
+            full_y = full_y_diff
+            full_pred = full_pred_diff
+
+        return full_y, full_pred, cv_df
+
+
+    def do_grid_search(
+            df: pd.DataFrame,
+            model,
+            model_execs: int,
+            horizon: int,
+            test_size: int,
+            normalize,
+            differencing: bool,
+            original_ts_aligned,
+            ts_original,
+            param_grid: list,
+        ):
+        from sklearn.metrics import mean_squared_error
+
+        best_param_set = None
+        best_rmse = None
+
+        for param_set in tqdm(param_grid, desc='GridSearch'):
+
+            all_rmse = []
+
+            for _ in range(model_execs):
+
+                full_y, full_pred, _ = NeuralForecastFitPrediction.run_single_exec(
+                    df=df,
+                    model=model,
+                    horizon=horizon,
+                    test_size=test_size,
+                    normalize=normalize,
+                    differencing=differencing,
+                    original_ts_aligned=original_ts_aligned,
+                    ts_original=ts_original,
+                    param_set=param_set,
+                )
+
+                mask = ~np.isnan(full_pred)
+                rmse = np.sqrt(mean_squared_error(full_y[mask], full_pred[mask]))
+                all_rmse.append(rmse)
+
+            mean_rmse = np.mean(all_rmse)
+
+            if best_rmse is None or mean_rmse < best_rmse:
+                best_rmse = mean_rmse
+                best_param_set = param_set
+
+        print(f'Best params: {best_param_set} | RMSE: {best_rmse:.4f}')
+
+        return best_param_set
+
+
+    def train_neuralforecast(
+            model_execs: int,
+            data_title: str,
+            parameters: dict,
+            model,
+            normalize: str = None,
+            differencing: bool = False,
+        ):
+        import itertools
+
         with open(f'{FitPrediction.CONFIG_PATH}models_config.json') as f:
             data = json.load(f)
 
-        for item in data:
-            if item.get("type_data") == id:
-                return item
+        keys, values = zip(*parameters.items())
+        param_grid = [dict(zip(keys, v)) for v in itertools.product(*values)]
 
-        return None
+        for cfg in data:
 
+            if cfg['activate'] != 1:
+                continue
+
+            test_size = cfg['test_size']
+            horizon = cfg['horizon']
+            type_data = cfg['type_data']
+            pollutant = cfg['pollutant']
+            station_code = cfg['station_code']
+
+            real = get_dataframe_by_station_and_pollutant(
+                station_code=station_code,
+                pollutant=pollutant
+            )
+
+            ts = real['actual'].reset_index(drop=True)
+
+            if differencing:
+                ts_original = ts.copy()
+                ts = ts.diff().dropna().reset_index(drop=True)
+            else:
+                ts_original = None
+
+            df = pd.DataFrame({
+                'unique_id': 'series_1',
+                'ds': real.index[:len(ts)],
+                'y': ts.values
+            })
+
+            if differencing:
+                original_ts_aligned = ts_original.iloc[1:].reset_index(drop=True).values
+            else:
+                original_ts_aligned = ts.values
+
+            save_path = FitPrediction.get_save_path_actual(type_data, data_title)
+            os.makedirs(save_path, exist_ok=True)
+
+            title_temp = FitPrediction.get_title_temp(type_data, data_title)
+
+            # ── Grid search: acha o melhor param_set ────────────────────
+            best_param_set = NeuralForecastFitPrediction.do_grid_search(
+                df=df,
+                model=model,
+                model_execs=model_execs,
+                horizon=horizon,
+                test_size=test_size,
+                normalize=normalize,
+                differencing=differencing,
+                original_ts_aligned=original_ts_aligned,
+                ts_original=ts_original,
+                param_grid=param_grid,
+            )
+
+            # ── Roda model_execs com o melhor e salva cada uma ──────────
+            for _ in range(model_execs):
+
+                full_y, full_pred, cv_df = NeuralForecastFitPrediction.run_single_exec(
+                    df=df,
+                    model=model,
+                    horizon=horizon,
+                    test_size=test_size,
+                    normalize=normalize,
+                    differencing=differencing,
+                    original_ts_aligned=original_ts_aligned,
+                    ts_original=ts_original,
+                    param_set=best_param_set,
+                )
+
+                tsf.make_metrics_avaliation(
+                    y_true=full_y,
+                    y_pred=full_pred,
+                    test_size=len(cv_df),
+                    val_size=0,
+                    return_type=tsf.result_options.save_result,
+                    model_params=best_param_set,
+                    title=save_path + title_temp,
+                    prevs_df=cv_df
+                )
+
+                time.sleep(1)
+                    
 
 class ArimaFitPrediction(FitPrediction):
 
@@ -423,61 +704,6 @@ class ArimaFitPrediction(FitPrediction):
                 )
 
                 time.sleep(1)
-
-
-    # def walk_forward_arima(
-    #     ts,
-    #     train_size,
-    #     val_size,
-    #     test_size,
-    #     normalize=False,
-    #     scaler=None,
-    #     parameters=None,
-    #     horizon=1
-    # ):
-    #     # -----------------------------
-    #     # Preparação dos dados
-    #     # -----------------------------
-    #     if normalize:
-    #         full_series = scaler.transform(ts.values.reshape(-1, 1)).flatten()
-    #         train_used = full_series[:train_size]
-    #     else:
-    #         full_series = ts.values
-    #         train_used = full_series[:train_size]
-
-    #     history = list(train_used)
-
-    #     preds = []
-
-    #     total_steps = val_size + test_size
-    #     start_index = train_size
-
-    #     model = auto_arima(
-    #         history,
-    #         **(parameters or {})
-    #     )
-
-    #     # -----------------------------
-    #     # Walk-forward
-    #     # -----------------------------
-    #     for i in range(total_steps):
-
-    #         # pred 1 step
-    #         yhat = model.predict(n_periods=horizon)[0]
-    #         preds.append(yhat)
-    #         real_value = full_series[start_index + i]
-    #         model.update(real_value)
-
-    #     if normalize:
-    #         preds = scaler.inverse_transform(
-    #             np.array(preds).reshape(-1, 1)
-    #         ).flatten()
-
-    #     y_pred_full = np.full(len(ts), np.nan)
-    #     y_pred_full[-(val_size + test_size):] = preds
-
-    #     return y_pred_full
-    
 
     def build_arima(train_used, parameters, auto):
         try:

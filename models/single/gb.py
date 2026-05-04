@@ -15,4 +15,11 @@ parameters = {
 }
 
 model = GradientBoostingRegressor()
-FitPrediction.train_sklearn(model_execs, data_title, parameters, model, "min_max_scaler", True)
+FitPrediction.execute(
+    model_execs=model_execs,
+    data_title=data_title,
+    parameters=parameters,
+    model=model,
+    normalize="min_max_scaler", 
+    differencing=True
+)
