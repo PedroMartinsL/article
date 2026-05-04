@@ -71,8 +71,7 @@ class FitPrediction():
 
         else:
             raise ValueError(f"Tipo de modelo não suportado: {type(model)}")
-        
-        
+
     def get_windowing(
         ts_normalized: Union[pd.Series, pd.DataFrame],
         time_window: int,
@@ -142,21 +141,21 @@ class FitPrediction():
 
         ts_windowed = ts_windowed[columns_lag+['actual']]
         return ts_windowed
-    
+
     def get_scaler(scaler: str = "min_max_scaler"):
         if scaler == "standard_scaler":
             return preprocessing.StandardScaler()
         elif scaler == "min_max_scaler":
-            return  preprocessing.MinMaxScaler()
+            return preprocessing.MinMaxScaler()
         else:
             raise ValueError("Any Scaler with this name")
-        
-    def get_save_path_actual(type_data, data_title:str):
+
+    def get_save_path_actual(type_data, data_title: str):
         return FitPrediction.SAVE_PATH+str(type_data)+'-'+data_title+'/'
-    
+
     def get_title_temp(type_data, data_title):
         return str(type_data) + '-' + data_title
-    
+
     def get_configuration_by_id(id: int):
         with open(f'{FitPrediction.CONFIG_PATH}models_config.json') as f:
             data = json.load(f)
@@ -166,8 +165,8 @@ class FitPrediction():
                 return item
 
         return None
-    
-        
+
+
 class SklearnFitPrediction:
 
     def single_model(
@@ -183,11 +182,11 @@ class SklearnFitPrediction:
         recursive: bool = False,
         differencing: bool = False
     ) -> Dict:
-        
+
         train_size = len(time_series) - test_size
 
         if time_series.shape[1] > 1:
-            raise('Exogen')
+            raise ('Exogen')
 
         horizon_to_use = horizon
 
@@ -296,17 +295,17 @@ class SklearnFitPrediction:
             result_atual = []
             for t in range(0, model_execs):
                 retults = SklearnFitPrediction.single_model(
-                    'mlp', 
-                    params['time_window'], 
+                    'mlp',
+                    params['time_window'],
                     real,
-                    forecaster, 
-                    test_size, 
+                    forecaster,
+                    test_size,
                     val_size,
-                    result_type, 
-                    normalize, 
-                    horizon, 
+                    result_type,
+                    normalize,
+                    horizon,
                     recursive,
-                    differencing 
+                    differencing
                 )[metric]
                 result_atual.append(retults)
 
@@ -325,7 +324,6 @@ class SklearnFitPrediction:
 
         result_model = {'best_result': best_result, 'model': best_model}
         return result_model
-
 
     def train_sklearn(
         model_execs: int,
@@ -346,7 +344,7 @@ class SklearnFitPrediction:
 
             if i['activate'] == 1:
 
-                #Json Vars
+                # Json Vars
                 test_size = i['test_size']
                 val_size = i['val_size']
                 type_data = i['type_data']
@@ -356,10 +354,11 @@ class SklearnFitPrediction:
                 pollutant = i['pollutant']
                 station_code = i['station_code']
 
-                real = get_dataframe_by_station_and_pollutant(station_code=station_code, pollutant=pollutant)
+                real = get_dataframe_by_station_and_pollutant(
+                    station_code=station_code, pollutant=pollutant)
 
                 gs_result = SklearnFitPrediction.do_grid_search(
-                    real=real, 
+                    real=real,
                     test_size=test_size,
                     val_size=val_size,
                     parameters=parameters,
@@ -371,29 +370,31 @@ class SklearnFitPrediction:
                     differencing=differencing
                 )
 
-                save_path_actual = FitPrediction.get_save_path_actual(type_data, data_title)
+                save_path_actual = FitPrediction.get_save_path_actual(
+                    type_data, data_title)
                 os.makedirs(save_path_actual, exist_ok=True)
 
-                title_temp = FitPrediction.get_title_temp(type_data, data_title)
+                title_temp = FitPrediction.get_title_temp(
+                    type_data, data_title)
                 for _ in range(0, model_execs):
                     SklearnFitPrediction.single_model(
-                        save_path_actual+title_temp, 
+                        save_path_actual+title_temp,
                         gs_result['best_result']['time_window'],
                         real,
-                        gs_result['model'], 
-                        test_size, 
-                        val_size, 
-                        tsf.result_options.save_result, 
-                        normalize, 
+                        gs_result['model'],
+                        test_size,
+                        val_size,
+                        tsf.result_options.save_result,
+                        normalize,
                         horizon,
-                        recursive, 
+                        recursive,
                         differencing
                     )
                     time.sleep(1)
 
 
 class NeuralForecastFitPrediction:
-    
+
     def run_single_exec(
             df: pd.DataFrame,
             model,
@@ -401,27 +402,41 @@ class NeuralForecastFitPrediction:
             test_size: int,
             normalize,
             differencing: bool,
-            original_ts_aligned,
             ts_original,
             param_set: dict,
+            shift: int = 0,
         ):
+        import numpy as np
         from neuralforecast import NeuralForecast
         from neuralforecast.losses.pytorch import DistributionLoss
 
         df_used = df.copy()
 
+        # ───────────────────────────────
+        # NORMALIZAÇÃO
+        # ───────────────────────────────
+        scaler = None
         if normalize:
             scaler = FitPrediction.get_scaler(normalize)
             df_used['y'] = scaler.fit_transform(df_used[['y']]).flatten()
 
+        # ───────────────────────────────
+        # MODELO
+        # ───────────────────────────────
         try:
             model_instance = model(
+                logger=False,
+                enable_progress_bar=False,
+                enable_model_summary=False,
                 h=horizon,
                 loss=DistributionLoss(distribution='StudentT'),
                 **param_set
             )
         except TypeError:
             model_instance = model(
+                logger=False,
+                enable_progress_bar=False,
+                enable_model_summary=False,
                 h=horizon,
                 **param_set
             )
@@ -436,36 +451,41 @@ class NeuralForecastFitPrediction:
 
         model_name = model_instance.__class__.__name__
 
+        # ───────────────────────────────
+        # y verdadeiro completo
+        # ───────────────────────────────
         if normalize:
-            full_y_diff = scaler.inverse_transform(df_used[['y']]).flatten()
+            full_y = scaler.inverse_transform(df_used[['y']]).flatten()
         else:
-            full_y_diff = df_used['y'].values
+            full_y = df_used['y'].values
 
-        full_pred_diff = np.full(len(full_y_diff), np.nan)
+        # ───────────────────────────────
+        # preds completos (com NaN)
+        # ───────────────────────────────
+        full_pred = np.full(len(full_y), np.nan)
 
         full_ds = df_used['ds'].values
         cv_last = cv_df.groupby('ds')[f'{model_name}-median'].last().reset_index()
 
+        # inverse transform preds
         if normalize:
             cv_last[f'{model_name}-median'] = scaler.inverse_transform(
                 cv_last[[f'{model_name}-median']]
             ).flatten()
 
+        # encaixa preds no vetor completo
         for _, row in cv_last.iterrows():
             idx = np.where(full_ds == row['ds'])[0]
             if len(idx) > 0:
-                full_pred_diff[idx[0]] = row[f'{model_name}-median']
+                full_pred[idx[0]] = row[f'{model_name}-median']
 
-        if differencing:
-            full_y = original_ts_aligned
-            full_pred = np.full(len(full_pred_diff), np.nan)
-            for i in range(len(full_pred_diff)):
-                if not np.isnan(full_pred_diff[i]):
-                    prev_value = ts_original.iloc[i] 
-                    full_pred[i] = full_pred_diff[i] + prev_value
-        else:
-            full_y = full_y_diff
-            full_pred = full_pred_diff
+        if shift > 0:
+            full_pred = np.roll(full_pred, -shift)
+
+        mask = ~np.isnan(full_pred)
+
+        full_y = full_y[mask]
+        full_pred = full_pred[mask]
 
         return full_y, full_pred, cv_df
 
@@ -478,9 +498,9 @@ class NeuralForecastFitPrediction:
             test_size: int,
             normalize,
             differencing: bool,
-            original_ts_aligned,
             ts_original,
             param_grid: list,
+            shift: int
         ):
         from sklearn.metrics import mean_squared_error
 
@@ -500,14 +520,19 @@ class NeuralForecastFitPrediction:
                     test_size=test_size,
                     normalize=normalize,
                     differencing=differencing,
-                    original_ts_aligned=original_ts_aligned,
                     ts_original=ts_original,
                     param_set=param_set,
+                    shift=shift
                 )
 
-                mask = ~np.isnan(full_pred)
-                rmse = np.sqrt(mean_squared_error(full_y[mask], full_pred[mask]))
+                if len(full_pred) == 0:
+                    continue
+
+                rmse = np.sqrt(mean_squared_error(full_y, full_pred))
                 all_rmse.append(rmse)
+
+            if not all_rmse:
+                continue
 
             mean_rmse = np.mean(all_rmse)
 
@@ -525,8 +550,9 @@ class NeuralForecastFitPrediction:
             data_title: str,
             parameters: dict,
             model,
+            shift: int,
             normalize: str = None,
-            differencing: bool = False,
+            differencing: bool = False
         ):
         import itertools
 
@@ -558,25 +584,19 @@ class NeuralForecastFitPrediction:
                 ts_original = ts.copy()
                 ts = ts.diff().dropna().reset_index(drop=True)
             else:
-                ts_original = None
+                ts_original = ts.copy()
 
             df = pd.DataFrame({
                 'unique_id': 'series_1',
-                'ds': real.index[:len(ts)],
+                'ds': real.index[1:len(ts)+1] if differencing else real.index[:len(ts)],
                 'y': ts.values
             })
-
-            if differencing:
-                original_ts_aligned = ts_original.iloc[1:].reset_index(drop=True).values
-            else:
-                original_ts_aligned = ts.values
 
             save_path = FitPrediction.get_save_path_actual(type_data, data_title)
             os.makedirs(save_path, exist_ok=True)
 
             title_temp = FitPrediction.get_title_temp(type_data, data_title)
 
-            # ── Grid search: acha o melhor param_set ────────────────────
             best_param_set = NeuralForecastFitPrediction.do_grid_search(
                 df=df,
                 model=model,
@@ -585,12 +605,11 @@ class NeuralForecastFitPrediction:
                 test_size=test_size,
                 normalize=normalize,
                 differencing=differencing,
-                original_ts_aligned=original_ts_aligned,
                 ts_original=ts_original,
                 param_grid=param_grid,
+                shift=shift
             )
 
-            # ── Roda model_execs com o melhor e salva cada uma ──────────
             for _ in range(model_execs):
 
                 full_y, full_pred, cv_df = NeuralForecastFitPrediction.run_single_exec(
@@ -600,15 +619,15 @@ class NeuralForecastFitPrediction:
                     test_size=test_size,
                     normalize=normalize,
                     differencing=differencing,
-                    original_ts_aligned=original_ts_aligned,
                     ts_original=ts_original,
                     param_set=best_param_set,
+                    shift=shift
                 )
 
                 tsf.make_metrics_avaliation(
                     y_true=full_y,
                     y_pred=full_pred,
-                    test_size=len(cv_df),
+                    test_size=test_size - shift,
                     val_size=0,
                     return_type=tsf.result_options.save_result,
                     model_params=best_param_set,
@@ -617,7 +636,7 @@ class NeuralForecastFitPrediction:
                 )
 
                 time.sleep(1)
-                    
+
 
 class ArimaFitPrediction(FitPrediction):
 
@@ -655,7 +674,8 @@ class ArimaFitPrediction(FitPrediction):
 
             train_size = len(ts) - test_size
 
-            save_path = FitPrediction.get_save_path_actual(type_data, data_title)
+            save_path = FitPrediction.get_save_path_actual(
+                type_data, data_title)
             os.makedirs(save_path, exist_ok=True)
 
             title_temp = FitPrediction.get_title_temp(type_data, data_title)
@@ -664,14 +684,16 @@ class ArimaFitPrediction(FitPrediction):
 
                 if normalize:
                     scaler = FitPrediction.get_scaler(normalize)
-                    ts_used = scaler.fit_transform(ts.values.reshape(-1, 1)).flatten()
+                    ts_used = scaler.fit_transform(
+                        ts.values.reshape(-1, 1)).flatten()
                 else:
                     ts_used = ts.values
 
                 preds = np.full(len(ts), np.nan)
 
                 history = list(ts_used[:train_size])
-                model = ArimaFitPrediction.build_arima(history, parameters, auto)
+                model = ArimaFitPrediction.build_arima(
+                    history, parameters, auto)
 
                 for i in range(test_size):
                     yhat = model.predict(n_periods=horizon)[0]
@@ -690,7 +712,8 @@ class ArimaFitPrediction(FitPrediction):
                         preds[-1] = yhat
 
                 if normalize:
-                    preds = scaler.inverse_transform(preds.reshape(-1, 1)).flatten()
+                    preds = scaler.inverse_transform(
+                        preds.reshape(-1, 1)).flatten()
 
                 tsf.make_metrics_avaliation(
                     y_true=ts,
@@ -713,6 +736,6 @@ class ArimaFitPrediction(FitPrediction):
                 model = ARIMA(**(parameters or {}))
                 model.fit(train_used)
                 return model
-            
+
         except Exception as e:
             print("Error building arima model: ", e)
