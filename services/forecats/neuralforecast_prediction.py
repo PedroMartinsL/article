@@ -28,26 +28,22 @@ class NeuralForecastFitPrediction:
         ):
 
         df_used = df.copy()
+        df_used['ds'] = pd.to_datetime(df_used['ds'])
 
-        if differencing:
-            df_used['y_orig'] = df_used['y']
-            df_used['y'] = df_used['y'].diff()
-            df_used = df_used.dropna().reset_index(drop=True)
-
-        try:
-            model_instance = model(
-                logger=False,
-                enable_progress_bar=False,
-                enable_model_summary=False,
-                h=horizon,
-                loss=DistributionLoss(distribution='StudentT'),
-                **param_set
-            )
-        except TypeError:
-            raise Exception("Invalid model")
+        model_instance = model(
+            logger=False,
+            enable_progress_bar=False,
+            enable_model_summary=False,
+            h=horizon,
+            loss=DistributionLoss(distribution='StudentT'),
+            **param_set
+        )
 
         fcst = NeuralForecast(models=[model_instance], freq='D')
 
+        # ───────────────────────────────
+        # CROSS VALIDATION
+        # ───────────────────────────────
         cv_df = fcst.cross_validation(
             df=df_used,
             n_windows=max(1, test_size // horizon),
@@ -56,35 +52,32 @@ class NeuralForecastFitPrediction:
 
         model_name = model_instance.__class__.__name__
 
-        full_y = df_used['y'].values
-        full_pred = np.full(len(full_y), np.nan)
-        full_ds = df_used['ds'].values
+        # 🔥 alinhamento temporal correto
+        cv_df['ds'] = pd.to_datetime(cv_df['ds']) - pd.Timedelta(days=horizon)
 
         cv_last = cv_df.groupby('ds')[f'{model_name}-median'].last().reset_index()
 
-        for _, row in cv_last.iterrows():
-            idx = np.where(full_ds == row['ds'])[0]
-            if len(idx) > 0:
-                full_pred[idx[0]] = row[f'{model_name}-median']
+        merged = df_used[['ds', 'y']].merge(cv_last, on='ds', how='left')
 
-        full_y_masked = full_y
-        full_pred_masked = full_pred
+        full_y = merged['y'].values
+        full_pred = merged[f'{model_name}-median'].values
 
-        if differencing:
-            # precisamos alinhar com série original
-            original_y = df['y'].values
+        # ───────────────────────────────
+        # 🔥 PREVER ÚLTIMO PONTO (opcional mas útil)
+        # ───────────────────────────────
+        if np.isnan(full_pred[-1]):
+            future_df = fcst.predict(df_used)
 
-            # índice correspondente (shift de 1 por causa do diff)
-            valid_idx = np.where(full_pred_masked)[0] + 1
+            last_pred = future_df[f'{model_name}-median'].values[0]
 
-            base = original_y[valid_idx - 1]
+            full_pred[-1] = last_pred
 
-            full_pred_masked = base + full_pred_masked
-            full_y_masked = original_y[valid_idx]
-
-        response = tsf.make_metrics_avaliation(
-            y_true=full_y_masked,
-            y_pred=full_pred_masked,
+        # ───────────────────────────────
+        # MÉTRICAS
+        # ───────────────────────────────
+        return tsf.make_metrics_avaliation(
+            y_true=full_y,
+            y_pred=full_pred,
             test_size=test_size,
             val_size=0,
             return_type=return_option,
@@ -92,11 +85,6 @@ class NeuralForecastFitPrediction:
             title=save_path + title_temp,
             prevs_df=cv_df
         )
-
-        print("response \n\n", response)
-
-        return response
-
 
     def do_grid_search(
         df: pd.DataFrame,
