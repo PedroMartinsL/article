@@ -15,7 +15,7 @@ parameters = {
     "test": "adf",
 }
 
-ArimaFitPrediction.train_arima(
+ArimaFitPrediction.execute(
     model_execs=model_execs,
     data_title=data_title,
     normalize="min_max_scaler",

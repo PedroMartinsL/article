@@ -12,7 +12,7 @@ parameters = {
     "suppress_warnings": True,
 }
 
-ArimaFitPrediction.train_arima(
+ArimaFitPrediction.execute(
     model_execs=model_execs,
     data_title=data_title,
     normalize=False,
