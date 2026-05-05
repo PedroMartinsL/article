@@ -17,23 +17,21 @@ def count_stations():
     # print(estacoes)
     pass
 
-def rank_missing_by_time(df, freq='D'):
-    """
-        df entry is everything
-    """
-
+def rank_missing_by_time_pollutant(df, freq='D', poluente_filtro=None, top_n=10):
     df = df.copy()
     df['Data'] = pd.to_datetime(df['Data'])
+
+    # 🔥 filtra o poluente se for passado
+    if poluente_filtro is not None:
+        df = df[df['Poluente'] == poluente_filtro]
 
     results = []
 
     for (codigo, poluente), group in df.groupby(['Codigo', 'Poluente']):
         group = group.sort_values('Data')
 
-        # Uniq date
         unique_dates = group['Data'].dt.floor(freq).nunique()
 
-        # Expected completed interval
         full_range = pd.date_range(
             start=group['Data'].min().floor(freq),
             end=group['Data'].max().floor(freq),
@@ -41,7 +39,6 @@ def rank_missing_by_time(df, freq='D'):
         )
 
         expected = len(full_range)
-
         missing = expected - unique_dates
 
         results.append({
@@ -53,7 +50,13 @@ def rank_missing_by_time(df, freq='D'):
             'missing_pct': missing / expected if expected > 0 else 0
         })
 
-    return pd.DataFrame(results).sort_values('missing').head(20)
+    result_df = pd.DataFrame(results)
+
+    # 🔥 melhores = menor percentual de missing
+    result_df = result_df.sort_values('missing_pct', ascending=True).head(top_n)
+
+    return result_df
+
 
 def get_dataframe_by_station_and_pollutant(station_code: str, pollutant: str, save_cv: bool = False):
 
@@ -143,8 +146,13 @@ def adf_test(series,title=''):
 
 if __name__ == "__main__":
     from statsmodels.tsa.seasonal import seasonal_decompose  
-    pollutant = "MP10"
-    station_code = "SP20"
+    # pollutant = "NO2" #Has
+    # pollutant = "CO" #Has
+    pollutant = "NO2"
+    # pollutant = "MP10"
+    # pollutant = "MP2.5"
+    # pollutant = "O3"
+    station_code = "SP37"
 
     print_example(station_code, pollutant)
 
